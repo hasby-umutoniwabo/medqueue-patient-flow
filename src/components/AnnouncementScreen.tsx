@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Clock, User, AlertCircle, Users, RefreshCw, Filter } from "lucide-react";
+import Navigation from "@/components/Navigation";
 
 interface QueueEntry {
   id: string;
@@ -330,7 +331,9 @@ const AnnouncementScreen = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 text-white p-6">
+    <>
+      <Navigation variant="floating" />
+      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 text-white p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
@@ -609,6 +612,7 @@ const AnnouncementScreen = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

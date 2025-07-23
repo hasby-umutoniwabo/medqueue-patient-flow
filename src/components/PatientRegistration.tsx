@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSmsNotifications } from "@/hooks/useSmsNotifications";
 import { Calendar, User, Phone, FileText, AlertCircle, IdCard, MessageSquare, Clock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import Navigation from "@/components/Navigation";
 
 interface PatientFormData {
   national_id: string;
@@ -321,8 +322,10 @@ const PatientRegistration = () => {
   // National ID Entry Step
   if (step === 'nid_entry') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
-        <div className="max-w-md mx-auto pt-20">
+      <>
+        <Navigation variant="minimal" />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+          <div className="max-w-md mx-auto pt-20">
           <Card className="border-0 shadow-xl">
             <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
               <CardTitle className="text-2xl flex items-center justify-center gap-2">
@@ -360,14 +363,17 @@ const PatientRegistration = () => {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
   // New Patient Registration Form
   if (step === 'new_patient_form') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
-        <div className="max-w-md mx-auto pt-8">
+      <>
+        <Navigation variant="minimal" />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+          <div className="max-w-md mx-auto pt-8">
           <Card className="border-0 shadow-xl">
             <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
               <CardTitle className="text-2xl">New Patient Registration</CardTitle>
@@ -470,13 +476,16 @@ const PatientRegistration = () => {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
   // Doctor Selection Step
   if (step === 'doctor_selection') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+      <>
+        <Navigation variant="minimal" />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
         <div className="max-w-md mx-auto pt-12">
           <Card className="border-0 shadow-xl">
             <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
@@ -587,6 +596,7 @@ const PatientRegistration = () => {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
@@ -595,8 +605,10 @@ const PatientRegistration = () => {
     const patientName = existingPatient?.full_name || formData.full_name;
     
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
-        <div className="max-w-md mx-auto pt-12">
+      <>
+        <Navigation variant="minimal" />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+          <div className="max-w-md mx-auto pt-12">
           <Card className="border-0 shadow-xl">
             <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
               <CardTitle className="text-2xl">
@@ -656,6 +668,7 @@ const PatientRegistration = () => {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
@@ -666,8 +679,10 @@ const PatientRegistration = () => {
     const selectedDoctor = doctors.find(d => d.id === formData.doctor_id);
     
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
-        <div className="max-w-md mx-auto pt-20">
+      <>
+        <Navigation variant="minimal" />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+          <div className="max-w-md mx-auto pt-20">
           <Card className="border-0 shadow-xl">
             <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
               <CardTitle className="text-2xl">Queue Ticket</CardTitle>
@@ -712,6 +727,7 @@ const PatientRegistration = () => {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
