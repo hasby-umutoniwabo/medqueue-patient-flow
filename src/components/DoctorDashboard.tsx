@@ -3,10 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSmsNotifications } from "@/hooks/useSmsNotifications";
-import { User, Clock, Phone, FileText, UserCheck, UserX } from "lucide-react";
+import { User, Clock, Phone, FileText, UserCheck, UserX, Stethoscope } from "lucide-react";
 
 interface QueueEntry {
   id: string;
@@ -15,21 +16,36 @@ interface QueueEntry {
   status: string;
   estimated_wait_time: number;
   created_at: string;
+  doctor_id: string;
   patients: {
     full_name: string;
     phone_number: string;
     date_of_birth: string;
   };
+  doctors: {
+    name: string;
+    specialization: string;
+  };
+}
+
+interface Doctor {
+  id: string;
+  name: string;
+  specialization: string;
+  is_available: boolean;
 }
 
 const DoctorDashboard = () => {
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [currentPatient, setCurrentPatient] = useState<QueueEntry | null>(null);
   const { toast } = useToast();
   const { sendPatientCalledSMS, sendYouAreNextSMS } = useSmsNotifications();
 
   useEffect(() => {
+    fetchDoctors();
     fetchQueueEntries();
     
     // Set up real-time subscription
@@ -46,6 +62,20 @@ const DoctorDashboard = () => {
     };
   }, []);
 
+  const fetchDoctors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('doctors')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setDoctors(data || []);
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+    }
+  };
+
   // sendPositionNotifications function removed - replaced with targeted SMS logic
 
   const fetchQueueEntries = async () => {
@@ -58,14 +88,15 @@ const DoctorDashboard = () => {
             full_name,
             phone_number,
             date_of_birth
+          ),
+          doctors (
+            name,
+            specialization
           )
         `)
         .order('queue_number', { ascending: true });
 
       if (error) throw error;
-      
-      const previousWaitingCount = queueEntries.filter(entry => entry.status === 'waiting').length;
-      const newWaitingEntries = (data || []).filter(entry => entry.status === 'waiting');
       
       setQueueEntries(data || []);
       
@@ -73,8 +104,6 @@ const DoctorDashboard = () => {
       const inProgress = data?.find(entry => entry.status === 'in_progress');
       const nextWaiting = data?.find(entry => entry.status === 'waiting');
       setCurrentPatient(inProgress || nextWaiting || null);
-      
-      // Position notifications removed - will be replaced with targeted "you're next" and "top 5" logic
       
     } catch (error) {
       console.error('Error fetching queue:', error);
@@ -84,18 +113,22 @@ const DoctorDashboard = () => {
   };
 
   const callNextPatient = async () => {
-    const nextPatient = queueEntries.find(entry => entry.status === 'waiting');
+    const filteredEntries = selectedDoctorId === 'all' 
+      ? queueEntries 
+      : queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+    
+    const nextPatient = filteredEntries.find(entry => entry.status === 'waiting');
     if (!nextPatient) {
       toast({
         title: "No patients waiting",
-        description: "The queue is empty.",
+        description: selectedDoctorId === 'all' ? "The queue is empty." : "No patients waiting for this doctor.",
       });
       return;
     }
 
     try {
-      // First, complete any existing "in_progress" patients
-      const inProgressPatients = queueEntries.filter(entry => entry.status === 'in_progress');
+      // First, complete any existing "in_progress" patients for this doctor
+      const inProgressPatients = filteredEntries.filter(entry => entry.status === 'in_progress');
       if (inProgressPatients.length > 0) {
         const { error: completeError } = await supabase
           .from('queue_entries')
@@ -135,12 +168,12 @@ const DoctorDashboard = () => {
       });
 
       // Find the NEW next patient (after calling current one) and notify them they're next
-      const updatedWaitingPatients = queueEntries.filter(entry => 
+      const remainingWaitingPatients = filteredEntries.filter(entry => 
         entry.status === 'waiting' && entry.id !== nextPatient.id
       );
       
-      if (updatedWaitingPatients.length > 0) {
-        const newNextPatient = updatedWaitingPatients[0]; // First in waiting queue
+      if (remainingWaitingPatients.length > 0) {
+        const newNextPatient = remainingWaitingPatients[0]; // First in waiting queue
         const nextPatientForSMS = {
           id: newNextPatient.id,
           full_name: newNextPatient.patients.full_name,
@@ -152,6 +185,9 @@ const DoctorDashboard = () => {
           console.error('Failed to send you are next SMS:', error);
         });
       }
+
+      // Refresh data after calling patient
+      await fetchQueueEntries();
 
       toast({
         title: "Patient Called",
@@ -179,6 +215,9 @@ const DoctorDashboard = () => {
 
       if (error) throw error;
 
+      // Refresh data after completion
+      await fetchQueueEntries();
+
       toast({
         title: "Consultation Completed",
         description: "Patient has been marked as completed.",
@@ -197,10 +236,13 @@ const DoctorDashboard = () => {
     try {
       const { error } = await supabase
         .from('queue_entries')
-        .update({ status: 'no_show' })
+        .update({ status: 'cancelled' })
         .eq('id', patientId);
 
       if (error) throw error;
+
+      // Refresh data after marking no show
+      await fetchQueueEntries();
 
       toast({
         title: "Marked as No Show",
@@ -221,7 +263,7 @@ const DoctorDashboard = () => {
       case 'waiting': return 'bg-yellow-100 text-yellow-800';
       case 'in_progress': return 'bg-blue-100 text-blue-800';
       case 'completed': return 'bg-green-100 text-green-800';
-      case 'no_show': return 'bg-red-100 text-red-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -236,10 +278,15 @@ const DoctorDashboard = () => {
     }
   };
 
-  const waitingPatients = queueEntries.filter(entry => entry.status === 'waiting');
-  const inProgressPatients = queueEntries.filter(entry => entry.status === 'in_progress');
   const completedToday = queueEntries.filter(entry => entry.status === 'completed').length;
-  const activePatients = queueEntries.filter(entry => entry.status === 'waiting' || entry.status === 'in_progress');
+
+  // Filter based on selected doctor
+  const filteredQueueEntries = selectedDoctorId === 'all' 
+    ? queueEntries 
+    : queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+  const filteredWaitingPatients = filteredQueueEntries.filter(entry => entry.status === 'waiting');
+  const filteredInProgressPatients = filteredQueueEntries.filter(entry => entry.status === 'in_progress');
+  const filteredActivePatients = filteredQueueEntries.filter(entry => entry.status === 'waiting' || entry.status === 'in_progress');
 
   if (isLoading) {
     return (
@@ -260,6 +307,33 @@ const DoctorDashboard = () => {
           <p className="text-gray-600">Manage patient queue and consultations</p>
         </div>
 
+        {/* Doctor Filter */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <User className="h-5 w-5 text-gray-600" />
+              <div className="flex-1">
+                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                  Filter by Doctor
+                </label>
+                <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="Select a doctor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Doctors</SelectItem>
+                    {doctors.map((doctor) => (
+                      <SelectItem key={doctor.id} value={doctor.id}>
+                        {doctor.name} - {doctor.specialization}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card>
@@ -267,7 +341,7 @@ const DoctorDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Waiting</p>
-                  <p className="text-2xl font-bold text-yellow-600">{waitingPatients.length}</p>
+                  <p className="text-2xl font-bold text-yellow-600">{filteredWaitingPatients.length}</p>
                 </div>
                 <Clock className="h-8 w-8 text-yellow-600" />
               </div>
@@ -278,9 +352,9 @@ const DoctorDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">In Progress</p>
-                  <p className="text-2xl font-bold text-blue-600">{inProgressPatients.length}</p>
+                  <p className="text-2xl font-bold text-blue-600">{filteredInProgressPatients.length}</p>
                 </div>
-                <User className="h-8 w-8 text-blue-600" />
+                <UserCheck className="h-8 w-8 text-blue-600" />
               </div>
             </CardContent>
           </Card>
@@ -291,7 +365,7 @@ const DoctorDashboard = () => {
                   <p className="text-sm text-gray-600">Completed Today</p>
                   <p className="text-2xl font-bold text-green-600">{completedToday}</p>
                 </div>
-                <UserCheck className="h-8 w-8 text-green-600" />
+                <UserX className="h-8 w-8 text-green-600" />
               </div>
             </CardContent>
           </Card>
@@ -299,10 +373,10 @@ const DoctorDashboard = () => {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Total Today</p>
-                  <p className="text-2xl font-bold text-gray-600">{queueEntries.length}</p>
+                  <p className="text-sm text-gray-600">Total Active</p>
+                  <p className="text-2xl font-bold text-purple-600">{filteredActivePatients.length}</p>
                 </div>
-                <FileText className="h-8 w-8 text-gray-600" />
+                <FileText className="h-8 w-8 text-purple-600" />
               </div>
             </CardContent>
           </Card>
@@ -364,13 +438,13 @@ const DoctorDashboard = () => {
               <div className="text-center">
                 <div className="mb-4">
                   <p className="text-3xl font-bold text-blue-600">
-                    {waitingPatients.length}
+                    {filteredWaitingPatients.length}
                   </p>
                   <p className="text-gray-600">Patients Waiting</p>
                 </div>
                 <Button 
                   onClick={callNextPatient}
-                  disabled={waitingPatients.length === 0}
+                  disabled={filteredWaitingPatients.length === 0}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-lg h-12"
                 >
                   Call Next Patient
@@ -388,10 +462,15 @@ const DoctorDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activePatients.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">No active patients in queue</p>
+              {filteredActivePatients.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  {selectedDoctorId === 'all' 
+                    ? "No active patients in queue" 
+                    : "No active patients for selected doctor"
+                  }
+                </p>
               ) : (
-                activePatients.map((entry) => (
+                filteredActivePatients.map((entry) => (
                   <div key={entry.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex items-center space-x-4">
                       <div className="text-2xl font-bold text-blue-600">
@@ -400,6 +479,9 @@ const DoctorDashboard = () => {
                       <div>
                         <p className="font-medium">{entry.patients.full_name}</p>
                         <p className="text-sm text-gray-600">{getVisitReasonLabel(entry.visit_reason)}</p>
+                        <p className="text-sm text-blue-600">
+                          Dr. {entry.doctors?.name || 'Unknown'} - {entry.doctors?.specialization || ''}
+                        </p>
                         <p className="text-xs text-gray-500">
                           Registered: {new Date(entry.created_at).toLocaleTimeString()}
                         </p>

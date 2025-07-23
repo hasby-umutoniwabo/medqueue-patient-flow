@@ -72,11 +72,13 @@ class SMSService {
     }
   }
 
-  generateWelcomeMessage(patientName: string, queuePosition: number): string {
+  generateWelcomeMessage(patientName: string, queuePosition: number, doctorName?: string): string {
+    const doctorInfo = doctorName ? ` with ${doctorName}` : '';
+    
     if (queuePosition <= 5) {
-      return `Dear ${patientName}, You're in the Hospital Digital Queue. Your number is ${queuePosition}. Please stay nearby, you are among the next 5 to be served.`;
+      return `Dear ${patientName}, You're in the Hospital Digital Queue${doctorInfo}. Your number is ${queuePosition}. Please stay nearby, you are among the next 5 to be served.`;
     } else {
-      return `Dear ${patientName}, You're in the Hospital Digital Queue. Your number is ${queuePosition}. You will receive notifications once you are in the top 5 people next.`;
+      return `Dear ${patientName}, You're in the Hospital Digital Queue${doctorInfo}. Your number is ${queuePosition}. You will receive notifications once you are in the top 5 people next.`;
     }
   }
 
@@ -93,13 +95,13 @@ class SMSService {
     return null; // No notification for positions >5
   }
 
-  async sendWelcomeMessage(patient: Patient, queuePosition: number): Promise<SMSResponse> {
+  async sendWelcomeMessage(patient: Patient, queuePosition: number, doctorName?: string): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
       return { success: false, error: 'Invalid phone number format' };
     }
 
-    const message = this.generateWelcomeMessage(patient.full_name, queuePosition);
+    const message = this.generateWelcomeMessage(patient.full_name, queuePosition, doctorName);
     return this.sendSMS(validatedPhone, message);
   }
 

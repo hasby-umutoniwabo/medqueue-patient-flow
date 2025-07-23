@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSmsNotifications } from "@/hooks/useSmsNotifications";
-import { Calendar, User, Phone, FileText, AlertCircle, IdCard, MessageSquare } from "lucide-react";
+import { Calendar, User, Phone, FileText, AlertCircle, IdCard, MessageSquare, Clock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface PatientFormData {
@@ -17,13 +17,24 @@ interface PatientFormData {
   date_of_birth: string;
   emergency_contact: string;
   visit_reason: 'general_consultation' | 'follow_up' | 'emergency' | 'other';
+  doctor_id: string;
   sms_notifications_enabled: boolean;
 }
 
+interface Doctor {
+  id: string;
+  name: string;
+  specialization: string;
+  is_available: boolean;
+  waiting_count?: number;
+  current_patient?: string;
+}
+
 const PatientRegistration = () => {
-  const [step, setStep] = useState<'nid_entry' | 'new_patient_form' | 'visit_reason' | 'queue_ticket'>('nid_entry');
+  const [step, setStep] = useState<'nid_entry' | 'new_patient_form' | 'doctor_selection' | 'visit_reason' | 'queue_ticket'>('nid_entry');
   const [nationalId, setNationalId] = useState('');
   const [existingPatient, setExistingPatient] = useState<any>(null);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [formData, setFormData] = useState<PatientFormData>({
     national_id: '',
     full_name: '',
@@ -31,13 +42,90 @@ const PatientRegistration = () => {
     date_of_birth: '',
     emergency_contact: '',
     visit_reason: 'general_consultation',
+    doctor_id: '',
     sms_notifications_enabled: true
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [queueNumber, setQueueNumber] = useState<number | null>(null);
   const [queuePosition, setQueuePosition] = useState<number>(0);
   const { toast } = useToast();
   const { sendWelcomeSMS } = useSmsNotifications();
+
+  useEffect(() => {
+    fetchDoctors();
+    
+    // Set up real-time subscription for queue updates
+    const channel = supabase
+      .channel('queue-updates')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'queue_entries' },
+        () => {
+          // Refresh doctor queue information when queue changes
+          if (step === 'doctor_selection') {
+            fetchDoctors();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [step]);
+
+  const fetchDoctors = async () => {
+    try {
+      // Fetch doctors
+      const { data: doctorsData, error: doctorsError } = await supabase
+        .from('doctors')
+        .select('*')
+        .eq('is_available', true)
+        .order('name', { ascending: true });
+
+      if (doctorsError) throw doctorsError;
+
+      // Fetch queue information for each doctor
+      const doctorsWithQueue = await Promise.all(
+        (doctorsData || []).map(async (doctor) => {
+          // Get waiting count
+          const { count: waitingCount } = await supabase
+            .from('queue_entries')
+            .select('*', { count: 'exact', head: true })
+            .eq('doctor_id', doctor.id)
+            .eq('status', 'waiting');
+
+          // Get current patient (in progress)
+          const { data: currentPatientData } = await supabase
+            .from('queue_entries')
+            .select(`
+              queue_number,
+              patients!inner (
+                full_name
+              )
+            `)
+            .eq('doctor_id', doctor.id)
+            .eq('status', 'in_progress')
+            .single();
+
+          return {
+            ...doctor,
+            waiting_count: waitingCount || 0,
+            current_patient: Array.isArray(currentPatientData?.patients) 
+              ? (currentPatientData.patients.length > 0 ? currentPatientData.patients[0].full_name : null)
+              : (currentPatientData?.patients as any)?.full_name || null
+          };
+        })
+      );
+
+      setDoctors(doctorsWithQueue);
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load available doctors.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleNationalIdSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +150,7 @@ const PatientRegistration = () => {
       }
 
       if (patient) {
-        // Existing patient - go directly to visit reason
+        // Existing patient - go to visit reason selection
         setExistingPatient(patient);
         setFormData(prev => ({ ...prev, national_id: nationalId, visit_reason: 'general_consultation' }));
         setStep('visit_reason');
@@ -111,6 +199,10 @@ const PatientRegistration = () => {
         console.error('Patient creation error:', patientError);
         throw patientError;
       }
+      
+      // Store the created patient data
+      setExistingPatient(insertData);
+      
       toast({
         title: "Registration Successful",
         description: "Your information has been saved. Please select your reason for visit.",
@@ -131,51 +223,36 @@ const PatientRegistration = () => {
   const handleVisitReasonSubmit = async () => {
     setIsSubmitting(true);
     try {
-      console.log('Joining queue with visit reason:', formData.visit_reason);
-      // Get current queue position
+      console.log('Joining queue with visit reason:', formData.visit_reason, 'and doctor:', formData.doctor_id);
+      // Get current queue position for the selected doctor
       const { count, error: countError } = await supabase
         .from('queue_entries')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'waiting');
+        .eq('status', 'waiting')
+        .eq('doctor_id', formData.doctor_id);
       if (countError) {
         console.error('Error getting queue count:', countError);
         throw countError;
       }
       const currentPosition = (count || 0) + 1;
-      console.log('Current queue position:', currentPosition);
-      // Generate queue number using the database function
-      let queueData = null;
-      let queueError = null;
-      try {
-        const rpcResult = await supabase.rpc('generate_queue_number');
-        queueData = rpcResult.data;
-        queueError = rpcResult.error;
-      } catch (e) {
-        queueError = e;
+      console.log('Current queue position for doctor:', currentPosition);
+      
+      // Use existing patient data (either from lookup or just created)
+      if (!existingPatient) {
+        console.error('No patient data available');
+        throw new Error('Patient data not found');
       }
-      if (queueError) {
-        console.error('Error generating queue number:', queueError);
-        throw queueError;
-      }
-      console.log('Generated queue number:', queueData);
-      // Get patient ID
-      const { data: patient, error: patientError } = await supabase
-        .from('patients')
-        .select('id')
-        .eq('national_id', formData.national_id)
-        .single();
-      if (patientError || !patient) {
-        console.error('Patient not found:', patientError);
-        throw new Error('Patient not found');
-      }
-      console.log('Found patient ID:', patient.id);
+      
+      console.log('Using patient ID:', existingPatient.id);
+      
       // Add to queue
       const { error: queueEntryError } = await supabase
         .from('queue_entries')
         .insert([
           {
-            patient_id: patient.id,
-            queue_number: queueData,
+            patient_id: existingPatient.id,
+            doctor_id: formData.doctor_id,
+            queue_number: currentPosition,
             visit_reason: formData.visit_reason,
             estimated_wait_time: currentPosition * 15, // 15 minutes per patient
             status: 'waiting',
@@ -186,27 +263,30 @@ const PatientRegistration = () => {
         throw queueEntryError;
       }
       console.log('Successfully joined queue');
-      setQueueNumber(queueData);
+      setQueuePosition(currentPosition);
       setQueuePosition(currentPosition);
       setStep('queue_ticket');
       
       // Send welcome SMS if notifications are enabled
       if (formData.sms_notifications_enabled) {
         const patientForSMS = {
-          id: patient.id,
-          full_name: existingPatient?.full_name || formData.full_name,
-          phone_number: existingPatient?.phone_number || formData.phone_number
+          id: existingPatient.id,
+          full_name: existingPatient.full_name,
+          phone_number: existingPatient.phone_number
         };
         
+        const selectedDoctor = doctors.find(d => d.id === formData.doctor_id);
+        const doctorName = selectedDoctor?.name;
+        
         // Send SMS in background, don't block the UI
-        sendWelcomeSMS(patientForSMS, queueData).catch(error => {
+        sendWelcomeSMS(patientForSMS, currentPosition, doctorName).catch(error => {
           console.error('Failed to send welcome SMS:', error);
         });
       }
       
       toast({
         title: "Successfully Joined Queue",
-        description: `Your queue number is ${String(queueData).padStart(3, '0')}`,
+        description: `Your queue number is ${String(currentPosition).padStart(3, '0')}`,
       });
     } catch (error) {
       console.error('Queue joining error:', error);
@@ -231,9 +311,10 @@ const PatientRegistration = () => {
       date_of_birth: '',
       emergency_contact: '',
       visit_reason: 'general_consultation',
+      doctor_id: '',
       sms_notifications_enabled: true
     });
-    setQueueNumber(null);
+    setQueuePosition(0);
     setQueuePosition(0);
   };
 
@@ -392,6 +473,123 @@ const PatientRegistration = () => {
     );
   }
 
+  // Doctor Selection Step
+  if (step === 'doctor_selection') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
+        <div className="max-w-md mx-auto pt-12">
+          <Card className="border-0 shadow-xl">
+            <CardHeader className="text-center bg-blue-600 text-white rounded-t-lg">
+              <CardTitle className="text-2xl">Select Doctor</CardTitle>
+              <CardDescription className="text-blue-100">
+                Choose your preferred doctor for consultation
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Available Doctors *
+                  </Label>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={fetchDoctors}
+                    className="text-xs"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+                
+                {doctors.length === 0 ? (
+                  <div className="text-center py-8">
+                    <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500">No doctors available</p>
+                    <p className="text-sm text-gray-400">Please contact staff for assistance</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {doctors.map((doctor) => (
+                      <div
+                        key={doctor.id}
+                        className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                          formData.doctor_id === doctor.id
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                        onClick={() => setFormData(prev => ({ ...prev, doctor_id: doctor.id }))}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-lg">{doctor.name}</h3>
+                            <p className="text-gray-600 mb-2">{doctor.specialization}</p>
+                            
+                            {/* Queue Status */}
+                            <div className="space-y-1 text-sm">
+                              {doctor.current_patient ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                  <span className="text-green-700">
+                                    Currently serving: {doctor.current_patient}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                                  <span className="text-gray-600">Available</span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-3 w-3 text-gray-500" />
+                                <span className="text-gray-600">
+                                  {doctor.waiting_count || 0} patient{(doctor.waiting_count || 0) !== 1 ? 's' : ''} waiting
+                                </span>
+                              </div>
+                              
+                              <div className="text-xs text-gray-500">
+                                Est. wait: {((doctor.waiting_count || 0) + (doctor.current_patient ? 1 : 0)) * 15} minutes
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {formData.doctor_id === doctor.id && (
+                            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center ml-4">
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setStep('visit_reason')}
+                    className="flex-1"
+                  >
+                    Back
+                  </Button>
+                  <Button 
+                    onClick={handleVisitReasonSubmit}
+                    disabled={!formData.doctor_id || doctors.length === 0 || isSubmitting}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isSubmitting ? "Joining Queue..." : "Join Queue"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   // Visit Reason Selection
   if (step === 'visit_reason') {
     const patientName = existingPatient?.full_name || formData.full_name;
@@ -446,11 +644,11 @@ const PatientRegistration = () => {
                     Back
                   </Button>
                   <Button 
-                    onClick={handleVisitReasonSubmit}
+                    onClick={() => setStep('doctor_selection')}
                     disabled={isSubmitting}
                     className="flex-1 bg-blue-600 hover:bg-blue-700"
                   >
-                    {isSubmitting ? "Joining Queue..." : "Join Queue"}
+                    Continue
                   </Button>
                 </div>
               </div>
@@ -465,6 +663,7 @@ const PatientRegistration = () => {
   if (step === 'queue_ticket') {
     const estimatedWait = queuePosition * 15;
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const selectedDoctor = doctors.find(d => d.id === formData.doctor_id);
     
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-4">
@@ -476,14 +675,20 @@ const PatientRegistration = () => {
             </CardHeader>
             <CardContent className="p-8 text-center">
               <div className="mb-6">
-                <div className="text-6xl font-bold text-blue-600 mb-2">{String(queueNumber).padStart(3, '0')}</div>
+                <div className="text-6xl font-bold text-blue-600 mb-2">{String(queuePosition).padStart(3, '0')}</div>
                 <div className="text-lg text-gray-600">Your Queue Number</div>
               </div>
               
               <div className="space-y-3 text-sm bg-gray-50 p-4 rounded-lg mb-6">
+                {selectedDoctor && (
+                  <div className="flex justify-between">
+                    <span>Doctor:</span>
+                    <span className="font-semibold">{selectedDoctor.name}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span>Your Position:</span>
-                  <span className="font-semibold">{queuePosition} of {queuePosition}</span>
+                  <span className="font-semibold">{queuePosition} in queue</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Estimated Wait:</span>

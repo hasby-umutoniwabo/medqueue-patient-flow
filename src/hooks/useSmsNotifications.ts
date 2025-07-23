@@ -9,7 +9,7 @@ interface Patient {
 }
 
 interface SMSHookReturn {
-  sendWelcomeSMS: (patient: Patient, queuePosition: number) => Promise<boolean>;
+  sendWelcomeSMS: (patient: Patient, queuePosition: number, doctorName?: string) => Promise<boolean>;
   sendPatientCalledSMS: (patient: Patient) => Promise<boolean>;
   sendPositionUpdateSMS: (patient: Patient, position: number) => Promise<boolean>;
   sendYouAreNextSMS: (patient: Patient) => Promise<boolean>;
@@ -24,7 +24,7 @@ export const useSmsNotifications = (): SMSHookReturn => {
 
   const isSMSEnabled = smsService.isConfigured();
 
-  const sendWelcomeSMS = async (patient: Patient, queuePosition: number): Promise<boolean> => {
+  const sendWelcomeSMS = async (patient: Patient, queuePosition: number, doctorName?: string): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
       return false;
@@ -32,7 +32,7 @@ export const useSmsNotifications = (): SMSHookReturn => {
 
     setIsLoading(true);
     try {
-      const result = await smsService.sendWelcomeMessage(patient, queuePosition);
+      const result = await smsService.sendWelcomeMessage(patient, queuePosition, doctorName);
       
       if (result.success) {
         toast({
