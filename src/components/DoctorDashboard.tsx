@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSmsNotifications } from "@/hooks/useSmsNotifications";
@@ -35,17 +34,42 @@ interface Doctor {
   is_available: boolean;
 }
 
-const DoctorDashboard = () => {
+interface DoctorDashboardProps {
+  onLogout?: () => void;
+}
+
+const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('all');
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+  const [loggedInDoctor, setLoggedInDoctor] = useState<Doctor | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPatient, setCurrentPatient] = useState<QueueEntry | null>(null);
   const { toast } = useToast();
   const { sendPatientCalledSMS, sendYouAreNextSMS } = useSmsNotifications();
 
+  const handleLogout = () => {
+    localStorage.removeItem('medqueue_doctor');
+    toast({
+      title: "Logged out",
+      description: "You have been logged out successfully.",
+    });
+    if (onLogout) {
+      onLogout();
+    } else {
+      // Fallback if no onLogout prop provided
+      window.location.reload();
+    }
+  };
+
   useEffect(() => {
-    fetchDoctors();
+    // Get logged-in doctor from localStorage
+    const doctorData = localStorage.getItem('medqueue_doctor');
+    if (doctorData) {
+      const doctor = JSON.parse(doctorData);
+      setLoggedInDoctor(doctor);
+      setSelectedDoctorId(doctor.id);
+    }
+    
     fetchQueueEntries();
     
     // Set up real-time subscription
@@ -61,20 +85,6 @@ const DoctorDashboard = () => {
       supabase.removeChannel(channel);
     };
   }, []);
-
-  const fetchDoctors = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('doctors')
-        .select('*')
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setDoctors(data || []);
-    } catch (error) {
-      console.error('Error fetching doctors:', error);
-    }
-  };
 
   // sendPositionNotifications function removed - replaced with targeted SMS logic
 
@@ -113,15 +123,13 @@ const DoctorDashboard = () => {
   };
 
   const callNextPatient = async () => {
-    const filteredEntries = selectedDoctorId === 'all' 
-      ? queueEntries 
-      : queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+    const filteredEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
     
     const nextPatient = filteredEntries.find(entry => entry.status === 'waiting');
     if (!nextPatient) {
       toast({
         title: "No patients waiting",
-        description: selectedDoctorId === 'all' ? "The queue is empty." : "No patients waiting for this doctor.",
+        description: "No patients waiting for you.",
       });
       return;
     }
@@ -280,10 +288,8 @@ const DoctorDashboard = () => {
 
   const completedToday = queueEntries.filter(entry => entry.status === 'completed').length;
 
-  // Filter based on selected doctor
-  const filteredQueueEntries = selectedDoctorId === 'all' 
-    ? queueEntries 
-    : queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+  // Filter based on selected doctor (logged-in doctor only)
+  const filteredQueueEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
   const filteredWaitingPatients = filteredQueueEntries.filter(entry => entry.status === 'waiting');
   const filteredInProgressPatients = filteredQueueEntries.filter(entry => entry.status === 'in_progress');
   const filteredActivePatients = filteredQueueEntries.filter(entry => entry.status === 'waiting' || entry.status === 'in_progress');
@@ -307,29 +313,24 @@ const DoctorDashboard = () => {
           <p className="text-gray-600">Manage patient queue and consultations</p>
         </div>
 
-        {/* Doctor Filter */}
+        {/* Doctor Info */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <User className="h-5 w-5 text-gray-600" />
-              <div className="flex-1">
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Filter by Doctor
-                </label>
-                <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
-                  <SelectTrigger className="w-64">
-                    <SelectValue placeholder="Select a doctor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Doctors</SelectItem>
-                    {doctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.id}>
-                        {doctor.name} - {doctor.specialization}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <User className="h-5 w-5 text-gray-600" />
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Logged in as
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {loggedInDoctor ? `${loggedInDoctor.name} - ${loggedInDoctor.specialization}` : 'Loading...'}
+                  </div>
+                </div>
               </div>
+              <Button variant="outline" onClick={handleLogout}>
+                Logout
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -464,10 +465,7 @@ const DoctorDashboard = () => {
             <div className="space-y-4">
               {filteredActivePatients.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">
-                  {selectedDoctorId === 'all' 
-                    ? "No active patients in queue" 
-                    : "No active patients for selected doctor"
-                  }
+                  No active patients in your queue
                 </p>
               ) : (
                 filteredActivePatients.map((entry) => (

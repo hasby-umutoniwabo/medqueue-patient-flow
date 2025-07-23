@@ -4,6 +4,7 @@
 -- First, let's check and create tables one by one
 
 -- Drop existing tables if they exist (to start fresh)
+DROP TABLE IF EXISTS doctor_otps CASCADE;
 DROP TABLE IF EXISTS queue_entries CASCADE;
 DROP TABLE IF EXISTS announcements CASCADE;
 DROP TABLE IF EXISTS patients CASCADE;
@@ -13,6 +14,7 @@ DROP TABLE IF EXISTS doctors CASCADE;
 CREATE TABLE doctors (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
     specialization VARCHAR(255) NOT NULL,
     is_available BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
@@ -57,6 +59,16 @@ CREATE TABLE announcements (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+-- Create doctor_otps table for authentication
+CREATE TABLE doctor_otps (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    otp_code VARCHAR(10) NOT NULL,
+    phone_or_email VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    used BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_queue_entries_patient_id ON queue_entries(patient_id);
 CREATE INDEX idx_queue_entries_doctor_id ON queue_entries(doctor_id);
@@ -73,6 +85,7 @@ ALTER TABLE patients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE doctors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE queue_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE doctor_otps ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for all tables (allow all operations for now)
 CREATE POLICY "Allow all operations on patients" ON patients
@@ -87,12 +100,17 @@ CREATE POLICY "Allow all operations on queue_entries" ON queue_entries
 CREATE POLICY "Allow all operations on announcements" ON announcements
     FOR ALL USING (true) WITH CHECK (true);
 
+CREATE POLICY "Allow all operations on doctor_otps" ON doctor_otps
+    FOR ALL USING (true) WITH CHECK (true);
+
 -- Insert sample data
--- Insert doctors
-INSERT INTO doctors (name, specialization, is_available) VALUES
-    ('Dr. Sarah Johnson', 'General Medicine', true),
-    ('Dr. Michael Chen', 'Cardiology', true),
-    ('Dr. Emily Davis', 'Pediatrics', true);
+-- Insert doctors with Rwandan names
+INSERT INTO doctors (name, email, specialization, is_available) VALUES
+    ('Dr. Jean-Baptiste Nzeyimana', 'jb.nzeyimana@medqueue.rw', 'General Medicine', true),
+    ('Dr. Marie-Claire Uwimana', 'mc.uwimana@medqueue.rw', 'Cardiology', true),
+    ('Dr. Emmanuel Muhire', 'e.muhire@medqueue.rw', 'Pediatrics', true),
+    ('Dr. Diane Mukamana', 'd.mukamana@medqueue.rw', 'Internal Medicine', true),
+    ('Dr. Paul Nkurunziza', 'p.nkurunziza@medqueue.rw', 'Surgery', true);
 
 -- Insert patients with national_id
 INSERT INTO patients (full_name, phone_number, national_id, date_of_birth) VALUES
@@ -108,6 +126,8 @@ DECLARE
     doctor1_id UUID;
     doctor2_id UUID;
     doctor3_id UUID;
+    doctor4_id UUID;
+    doctor5_id UUID;
     patient1_id UUID;
     patient2_id UUID;
     patient3_id UUID;
@@ -115,9 +135,11 @@ DECLARE
     patient5_id UUID;
 BEGIN
     -- Get doctor IDs
-    SELECT id INTO doctor1_id FROM doctors WHERE name = 'Dr. Sarah Johnson';
-    SELECT id INTO doctor2_id FROM doctors WHERE name = 'Dr. Michael Chen';
-    SELECT id INTO doctor3_id FROM doctors WHERE name = 'Dr. Emily Davis';
+    SELECT id INTO doctor1_id FROM doctors WHERE name = 'Dr. Jean-Baptiste Nzeyimana';
+    SELECT id INTO doctor2_id FROM doctors WHERE name = 'Dr. Marie-Claire Uwimana';
+    SELECT id INTO doctor3_id FROM doctors WHERE name = 'Dr. Emmanuel Muhire';
+    SELECT id INTO doctor4_id FROM doctors WHERE name = 'Dr. Diane Mukamana';
+    SELECT id INTO doctor5_id FROM doctors WHERE name = 'Dr. Paul Nkurunziza';
     
     -- Get patient IDs
     SELECT id INTO patient1_id FROM patients WHERE full_name = 'John Smith';
@@ -132,7 +154,7 @@ BEGIN
         (patient2_id, doctor1_id, 'Follow-up consultation', 'waiting', 2, 15),
         (patient3_id, doctor2_id, 'Heart consultation', 'waiting', 1, 15),
         (patient4_id, doctor3_id, 'Child vaccination', 'waiting', 1, 15),
-        (patient5_id, doctor1_id, 'General consultation', 'waiting', 3, 30);
+        (patient5_id, doctor4_id, 'General consultation', 'waiting', 1, 15);
 END $$;
 
 -- Insert a sample announcement
