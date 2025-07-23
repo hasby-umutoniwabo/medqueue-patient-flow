@@ -48,8 +48,39 @@ const PatientRegistration = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [queuePosition, setQueuePosition] = useState<number>(0);
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
   const { sendWelcomeSMS } = useSmsNotifications();
+
+  // Validation functions
+  const validateNationalId = (nid: string): boolean => {
+    // Rwandan National ID: 16 digits, always starts with 1
+    const nidRegex = /^1\d{15}$/;
+    return nidRegex.test(nid);
+  };
+
+  const validatePhoneNumber = (phone: string): boolean => {
+    // Rwanda phone numbers: +25007XXXXXXXX or 07XXXXXXXX (10 digits total)
+    const phoneRegex = /^(\+2507|07)\d{8}$/;
+    return phoneRegex.test(phone);
+  };
+
+  const formatPhoneNumber = (phone: string): string => {
+    // Convert 07XXXXXXXX to +2507XXXXXXXX format
+    if (phone.startsWith('07')) {
+      return '+2507' + phone.substring(2); // Remove '07' and add '+2507'
+    }
+    return phone;
+  };
+
+  const displayPhoneNumber = (phone: string): string => {
+    // Display in +2507XX XXX XXX format for better readability
+    if (phone.startsWith('+2507')) {
+      const digits = phone.substring(5);
+      return `+2507${digits.substring(0, 2)} ${digits.substring(2, 5)} ${digits.substring(5)}`;
+    }
+    return phone;
+  };
 
   useEffect(() => {
     fetchDoctors();
@@ -130,7 +161,27 @@ const PatientRegistration = () => {
 
   const handleNationalIdSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nationalId.trim()) return;
+    
+    // Clear previous validation errors
+    setValidationErrors({});
+    
+    if (!nationalId.trim()) {
+      setValidationErrors({ national_id: 'National ID is required' });
+      return;
+    }
+
+    // Validate National ID format
+    if (!validateNationalId(nationalId)) {
+      setValidationErrors({ 
+        national_id: 'Invalid National ID format. Must be 16 digits starting with 1 (e.g., 1xxxxxxxxxxxxxxx)' 
+      });
+      toast({
+        title: "Invalid National ID",
+        description: "National ID must be 16 digits starting with 1",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -153,7 +204,16 @@ const PatientRegistration = () => {
       if (patient) {
         // Existing patient - go to visit reason selection
         setExistingPatient(patient);
-        setFormData(prev => ({ ...prev, national_id: nationalId, visit_reason: 'general_consultation' }));
+        setFormData(prev => ({ 
+          ...prev, 
+          national_id: nationalId, 
+          visit_reason: 'general_consultation',
+          // Pre-populate form data for existing patient to ensure validation passes
+          full_name: patient.full_name,
+          phone_number: patient.phone_number,
+          date_of_birth: patient.date_of_birth,
+          emergency_contact: patient.emergency_contact || ''
+        }));
         setStep('visit_reason');
         toast({
           title: `Welcome back, ${patient.full_name}!`,
@@ -301,6 +361,68 @@ const PatientRegistration = () => {
     }
   };
 
+  const validateNewPatientForm = (): boolean => {
+    const errors: {[key: string]: string} = {};
+
+    // Validate full name
+    if (!formData.full_name.trim()) {
+      errors.full_name = 'Full name is required';
+    }
+
+    // Validate phone number
+    if (!formData.phone_number.trim()) {
+      errors.phone_number = 'Phone number is required';
+    } else if (!validatePhoneNumber(formData.phone_number)) {
+      errors.phone_number = 'Invalid phone number format. Use 07XXXXXXXX or +2507XXXXXXXX';
+    }
+
+    // Validate emergency contact
+    if (formData.emergency_contact && !validatePhoneNumber(formData.emergency_contact)) {
+      errors.emergency_contact = 'Invalid emergency contact format. Use 07XXXXXXXX or +2507XXXXXXXX';
+    }
+
+    // Validate date of birth
+    if (!formData.date_of_birth) {
+      errors.date_of_birth = 'Date of birth is required';
+    } else {
+      const birthDate = new Date(formData.date_of_birth);
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear();
+      if (age < 0 || age > 150) {
+        errors.date_of_birth = 'Please enter a valid date of birth';
+      }
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleNewPatientContinue = () => {
+    // For existing patients, we don't need to validate as strictly since they're already in the system
+    if (existingPatient) {
+      // Just ensure we have the doctor_id and proceed
+      setStep('doctor_selection');
+      return;
+    }
+
+    // For new patients, do full validation
+    if (validateNewPatientForm()) {
+      // Format phone numbers before proceeding
+      setFormData(prev => ({
+        ...prev,
+        phone_number: formatPhoneNumber(prev.phone_number),
+        emergency_contact: prev.emergency_contact ? formatPhoneNumber(prev.emergency_contact) : ''
+      }));
+      setStep('doctor_selection');
+    } else {
+      toast({
+        title: "Validation Error",
+        description: "Please fix the errors and try again",
+        variant: "destructive",
+      });
+    }
+  };
+
   const resetForm = () => {
     setStep('nid_entry');
     setNationalId('');
@@ -315,6 +437,7 @@ const PatientRegistration = () => {
       doctor_id: '',
       sms_notifications_enabled: true
     });
+    setValidationErrors({});
     setQueuePosition(0);
     setQueuePosition(0);
   };
@@ -345,11 +468,22 @@ const PatientRegistration = () => {
                     type="text"
                     required
                     value={nationalId}
-                    onChange={(e) => setNationalId(e.target.value)}
-                    className="text-xl h-14 text-center"
-                    placeholder="Enter your National ID"
+                    onChange={(e) => {
+                      setNationalId(e.target.value);
+                      // Clear validation error when user starts typing
+                      if (validationErrors.national_id) {
+                        setValidationErrors(prev => ({ ...prev, national_id: '' }));
+                      }
+                    }}
+                    className={`text-xl h-14 text-center ${validationErrors.national_id ? 'border-red-500' : ''}`}
+                    placeholder="1xxxxxxxxxxxxxxx"
                     autoFocus
+                    maxLength={16}
                   />
+                  {validationErrors.national_id && (
+                    <p className="text-red-500 text-sm mt-1">{validationErrors.national_id}</p>
+                  )}
+                  <p className="text-gray-500 text-sm">16 digits, starting with 1</p>
                 </div>
                 <Button 
                   type="submit" 
@@ -393,9 +527,19 @@ const PatientRegistration = () => {
                     type="text"
                     required
                     value={formData.full_name}
-                    onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                    className="h-12"
+                    onChange={(e) => {
+                      setFormData({...formData, full_name: e.target.value});
+                      // Clear validation error when user starts typing
+                      if (validationErrors.full_name) {
+                        setValidationErrors(prev => ({ ...prev, full_name: '' }));
+                      }
+                    }}
+                    className={`h-12 ${validationErrors.full_name ? 'border-red-500' : ''}`}
+                    placeholder="Enter your full name"
                   />
+                  {validationErrors.full_name && (
+                    <p className="text-red-500 text-sm mt-1">{validationErrors.full_name}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -408,9 +552,20 @@ const PatientRegistration = () => {
                     type="tel"
                     required
                     value={formData.phone_number}
-                    onChange={(e) => setFormData({...formData, phone_number: e.target.value})}
-                    className="h-12"
+                    onChange={(e) => {
+                      setFormData({...formData, phone_number: e.target.value});
+                      // Clear validation error when user starts typing
+                      if (validationErrors.phone_number) {
+                        setValidationErrors(prev => ({ ...prev, phone_number: '' }));
+                      }
+                    }}
+                    className={`h-12 ${validationErrors.phone_number ? 'border-red-500' : ''}`}
+                    placeholder="07XXXXXXXX or +2507XXXXXXXX"
                   />
+                  {validationErrors.phone_number && (
+                    <p className="text-red-500 text-sm mt-1">{validationErrors.phone_number}</p>
+                  )}
+                  {/* <p className="text-gray-500 text-sm">Format: 07XXXXXXXX or +25007XXXXXXXX</p> */}
                 </div>
 
                 <div className="space-y-2">
@@ -423,9 +578,18 @@ const PatientRegistration = () => {
                     type="date"
                     required
                     value={formData.date_of_birth}
-                    onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
-                    className="h-12"
+                    onChange={(e) => {
+                      setFormData({...formData, date_of_birth: e.target.value});
+                      // Clear validation error when user starts typing
+                      if (validationErrors.date_of_birth) {
+                        setValidationErrors(prev => ({ ...prev, date_of_birth: '' }));
+                      }
+                    }}
+                    className={`h-12 ${validationErrors.date_of_birth ? 'border-red-500' : ''}`}
                   />
+                  {validationErrors.date_of_birth && (
+                    <p className="text-red-500 text-sm mt-1">{validationErrors.date_of_birth}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -434,10 +598,20 @@ const PatientRegistration = () => {
                     id="emergency_contact"
                     type="tel"
                     value={formData.emergency_contact}
-                    onChange={(e) => setFormData({...formData, emergency_contact: e.target.value})}
-                    className="h-12"
-                    placeholder="Optional"
+                    onChange={(e) => {
+                      setFormData({...formData, emergency_contact: e.target.value});
+                      // Clear validation error when user starts typing
+                      if (validationErrors.emergency_contact) {
+                        setValidationErrors(prev => ({ ...prev, emergency_contact: '' }));
+                      }
+                    }}
+                    className={`h-12 ${validationErrors.emergency_contact ? 'border-red-500' : ''}`}
+                    placeholder="07XXXXXXXX or +2507XXXXXXXX (Optional)"
                   />
+                  {validationErrors.emergency_contact && (
+                    <p className="text-red-500 text-sm mt-1">{validationErrors.emergency_contact}</p>
+                  )}
+                  {/* <p className="text-gray-500 text-sm">Optional - Format: 07XXXXXXXX or +25007XXXXXXXX</p> */}
                 </div>
 
                 <div className="flex items-center space-x-2">
@@ -656,7 +830,7 @@ const PatientRegistration = () => {
                     Back
                   </Button>
                   <Button 
-                    onClick={() => setStep('doctor_selection')}
+                    onClick={handleNewPatientContinue}
                     disabled={isSubmitting}
                     className="flex-1 bg-blue-600 hover:bg-blue-700"
                   >
