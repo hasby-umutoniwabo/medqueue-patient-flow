@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSmsNotifications } from "@/hooks/useSmsNotifications";
-import { User, Clock, Phone, FileText, UserCheck, UserX } from "lucide-react";
+import { User, Clock, Phone, FileText, UserCheck, UserX, Stethoscope } from "lucide-react";
 
 interface QueueEntry {
   id: string;
@@ -15,21 +15,61 @@ interface QueueEntry {
   status: string;
   estimated_wait_time: number;
   created_at: string;
+  doctor_id: string;
   patients: {
     full_name: string;
     phone_number: string;
     date_of_birth: string;
   };
+  doctors: {
+    name: string;
+    specialization: string;
+  };
 }
 
-const DoctorDashboard = () => {
+interface Doctor {
+  id: string;
+  name: string;
+  specialization: string;
+  is_available: boolean;
+}
+
+interface DoctorDashboardProps {
+  onLogout?: () => void;
+}
+
+const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+  const [loggedInDoctor, setLoggedInDoctor] = useState<Doctor | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPatient, setCurrentPatient] = useState<QueueEntry | null>(null);
   const { toast } = useToast();
-  const { sendPatientCalledSMS, sendYouAreNextSMS } = useSmsNotifications();
+  const { sendPatientCalledSMS, sendYouAreNextSMS, sendTop5SMS, sendTop3SMS, sendTop2SMS, sendNoShowSMS } = useSmsNotifications();
+
+  const handleLogout = () => {
+    localStorage.removeItem('medqueue_doctor');
+    toast({
+      title: "Logged out",
+      description: "You have been logged out successfully.",
+    });
+    if (onLogout) {
+      onLogout();
+    } else {
+      // Fallback if no onLogout prop provided
+      window.location.reload();
+    }
+  };
 
   useEffect(() => {
+    // Get logged-in doctor from localStorage
+    const doctorData = localStorage.getItem('medqueue_doctor');
+    if (doctorData) {
+      const doctor = JSON.parse(doctorData);
+      setLoggedInDoctor(doctor);
+      setSelectedDoctorId(doctor.id);
+    }
+    
     fetchQueueEntries();
     
     // Set up real-time subscription
@@ -58,14 +98,15 @@ const DoctorDashboard = () => {
             full_name,
             phone_number,
             date_of_birth
+          ),
+          doctors (
+            name,
+            specialization
           )
         `)
         .order('queue_number', { ascending: true });
 
       if (error) throw error;
-      
-      const previousWaitingCount = queueEntries.filter(entry => entry.status === 'waiting').length;
-      const newWaitingEntries = (data || []).filter(entry => entry.status === 'waiting');
       
       setQueueEntries(data || []);
       
@@ -74,8 +115,6 @@ const DoctorDashboard = () => {
       const nextWaiting = data?.find(entry => entry.status === 'waiting');
       setCurrentPatient(inProgress || nextWaiting || null);
       
-      // Position notifications removed - will be replaced with targeted "you're next" and "top 5" logic
-      
     } catch (error) {
       console.error('Error fetching queue:', error);
     } finally {
@@ -83,19 +122,61 @@ const DoctorDashboard = () => {
     }
   };
 
+  // Send position notifications to patients in top positions
+  const sendPositionNotifications = async () => {
+    try {
+      const filteredEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+      const waitingPatients = filteredEntries
+        .filter(entry => entry.status === 'waiting')
+        .sort((a, b) => a.queue_number - b.queue_number);
+
+      // Send notifications only to patients in top 5 positions
+      for (let i = 0; i < Math.min(waitingPatients.length, 5); i++) {
+        const entry = waitingPatients[i];
+        const position = i + 1; // Position in waiting queue (1st, 2nd, 3rd, etc.)
+        const patient = {
+          id: entry.id,
+          full_name: entry.patients.full_name,
+          phone_number: entry.patients.phone_number
+        };
+
+        // Send notifications based on position (but avoid spam - only key positions)
+        try {
+          if (position === 2) {
+            // 2nd in line - very important notification
+            await sendTop2SMS(patient);
+          } else if (position === 3) {
+            // 3rd in line
+            await sendTop3SMS(patient);
+          } else if (position === 5) {
+            // 5th in line - you're in top 5 notification
+            await sendTop5SMS(patient);
+          }
+          // Skip position 1 (next) and 4 to avoid too many notifications
+        } catch (error) {
+          console.error(`Error sending position notification to ${patient.full_name}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error in sendPositionNotifications:', error);
+    }
+  };
+
   const callNextPatient = async () => {
-    const nextPatient = queueEntries.find(entry => entry.status === 'waiting');
+    const filteredEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+    
+    const nextPatient = filteredEntries.find(entry => entry.status === 'waiting');
     if (!nextPatient) {
       toast({
         title: "No patients waiting",
-        description: "The queue is empty.",
+        description: "No patients waiting for you.",
       });
       return;
     }
 
     try {
-      // First, complete any existing "in_progress" patients
-      const inProgressPatients = queueEntries.filter(entry => entry.status === 'in_progress');
+      // First, complete any existing "in_progress" patients for this doctor
+      const inProgressPatients = filteredEntries.filter(entry => entry.status === 'in_progress');
       if (inProgressPatients.length > 0) {
         const { error: completeError } = await supabase
           .from('queue_entries')
@@ -135,12 +216,12 @@ const DoctorDashboard = () => {
       });
 
       // Find the NEW next patient (after calling current one) and notify them they're next
-      const updatedWaitingPatients = queueEntries.filter(entry => 
+      const remainingWaitingPatients = filteredEntries.filter(entry => 
         entry.status === 'waiting' && entry.id !== nextPatient.id
       );
       
-      if (updatedWaitingPatients.length > 0) {
-        const newNextPatient = updatedWaitingPatients[0]; // First in waiting queue
+      if (remainingWaitingPatients.length > 0) {
+        const newNextPatient = remainingWaitingPatients[0]; // First in waiting queue
         const nextPatientForSMS = {
           id: newNextPatient.id,
           full_name: newNextPatient.patients.full_name,
@@ -152,6 +233,12 @@ const DoctorDashboard = () => {
           console.error('Failed to send you are next SMS:', error);
         });
       }
+
+      // Refresh data after calling patient
+      await fetchQueueEntries();
+
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
 
       toast({
         title: "Patient Called",
@@ -179,6 +266,12 @@ const DoctorDashboard = () => {
 
       if (error) throw error;
 
+      // Refresh data after completion
+      await fetchQueueEntries();
+
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
+
       toast({
         title: "Consultation Completed",
         description: "Patient has been marked as completed.",
@@ -195,16 +288,39 @@ const DoctorDashboard = () => {
 
   const markNoShow = async (patientId: string) => {
     try {
+      // First, get the patient information before marking as no-show
+      const patientEntry = queueEntries.find(entry => entry.id === patientId);
+      
       const { error } = await supabase
         .from('queue_entries')
-        .update({ status: 'no_show' })
+        .update({ status: 'cancelled' })
         .eq('id', patientId);
 
       if (error) throw error;
 
+      // Send no-show SMS notification to the patient
+      if (patientEntry) {
+        const noShowPatientForSMS = {
+          id: patientEntry.id,
+          full_name: patientEntry.patients.full_name,
+          phone_number: patientEntry.patients.phone_number
+        };
+        
+        // Send no-show SMS in background, don't block the UI
+        sendNoShowSMS(noShowPatientForSMS).catch(error => {
+          console.error('Failed to send no-show SMS:', error);
+        });
+      }
+
+      // Refresh data after marking no show
+      await fetchQueueEntries();
+
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
+
       toast({
         title: "Marked as No Show",
-        description: "Patient has been marked as no show.",
+        description: "Patient has been marked as no show and notified via SMS.",
       });
     } catch (error) {
       console.error('Error marking no show:', error);
@@ -221,7 +337,7 @@ const DoctorDashboard = () => {
       case 'waiting': return 'bg-yellow-100 text-yellow-800';
       case 'in_progress': return 'bg-blue-100 text-blue-800';
       case 'completed': return 'bg-green-100 text-green-800';
-      case 'no_show': return 'bg-red-100 text-red-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -236,10 +352,13 @@ const DoctorDashboard = () => {
     }
   };
 
-  const waitingPatients = queueEntries.filter(entry => entry.status === 'waiting');
-  const inProgressPatients = queueEntries.filter(entry => entry.status === 'in_progress');
   const completedToday = queueEntries.filter(entry => entry.status === 'completed').length;
-  const activePatients = queueEntries.filter(entry => entry.status === 'waiting' || entry.status === 'in_progress');
+
+  // Filter based on selected doctor (logged-in doctor only)
+  const filteredQueueEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+  const filteredWaitingPatients = filteredQueueEntries.filter(entry => entry.status === 'waiting');
+  const filteredInProgressPatients = filteredQueueEntries.filter(entry => entry.status === 'in_progress');
+  const filteredActivePatients = filteredQueueEntries.filter(entry => entry.status === 'waiting' || entry.status === 'in_progress');
 
   if (isLoading) {
     return (
@@ -260,6 +379,28 @@ const DoctorDashboard = () => {
           <p className="text-gray-600">Manage patient queue and consultations</p>
         </div>
 
+        {/* Doctor Info */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <User className="h-5 w-5 text-gray-600" />
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Logged in as
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {loggedInDoctor ? `${loggedInDoctor.name} - ${loggedInDoctor.specialization}` : 'Loading...'}
+                  </div>
+                </div>
+              </div>
+              <Button variant="outline" onClick={handleLogout}>
+                Logout
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card>
@@ -267,7 +408,7 @@ const DoctorDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Waiting</p>
-                  <p className="text-2xl font-bold text-yellow-600">{waitingPatients.length}</p>
+                  <p className="text-2xl font-bold text-yellow-600">{filteredWaitingPatients.length}</p>
                 </div>
                 <Clock className="h-8 w-8 text-yellow-600" />
               </div>
@@ -278,9 +419,9 @@ const DoctorDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">In Progress</p>
-                  <p className="text-2xl font-bold text-blue-600">{inProgressPatients.length}</p>
+                  <p className="text-2xl font-bold text-blue-600">{filteredInProgressPatients.length}</p>
                 </div>
-                <User className="h-8 w-8 text-blue-600" />
+                <UserCheck className="h-8 w-8 text-blue-600" />
               </div>
             </CardContent>
           </Card>
@@ -291,7 +432,7 @@ const DoctorDashboard = () => {
                   <p className="text-sm text-gray-600">Completed Today</p>
                   <p className="text-2xl font-bold text-green-600">{completedToday}</p>
                 </div>
-                <UserCheck className="h-8 w-8 text-green-600" />
+                <UserX className="h-8 w-8 text-green-600" />
               </div>
             </CardContent>
           </Card>
@@ -299,10 +440,10 @@ const DoctorDashboard = () => {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Total Today</p>
-                  <p className="text-2xl font-bold text-gray-600">{queueEntries.length}</p>
+                  <p className="text-sm text-gray-600">Total Active</p>
+                  <p className="text-2xl font-bold text-purple-600">{filteredActivePatients.length}</p>
                 </div>
-                <FileText className="h-8 w-8 text-gray-600" />
+                <FileText className="h-8 w-8 text-purple-600" />
               </div>
             </CardContent>
           </Card>
@@ -364,13 +505,13 @@ const DoctorDashboard = () => {
               <div className="text-center">
                 <div className="mb-4">
                   <p className="text-3xl font-bold text-blue-600">
-                    {waitingPatients.length}
+                    {filteredWaitingPatients.length}
                   </p>
                   <p className="text-gray-600">Patients Waiting</p>
                 </div>
                 <Button 
                   onClick={callNextPatient}
-                  disabled={waitingPatients.length === 0}
+                  disabled={filteredWaitingPatients.length === 0}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-lg h-12"
                 >
                   Call Next Patient
@@ -388,10 +529,12 @@ const DoctorDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activePatients.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">No active patients in queue</p>
+              {filteredActivePatients.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  No active patients in your queue
+                </p>
               ) : (
-                activePatients.map((entry) => (
+                filteredActivePatients.map((entry) => (
                   <div key={entry.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex items-center space-x-4">
                       <div className="text-2xl font-bold text-blue-600">
@@ -400,6 +543,9 @@ const DoctorDashboard = () => {
                       <div>
                         <p className="font-medium">{entry.patients.full_name}</p>
                         <p className="text-sm text-gray-600">{getVisitReasonLabel(entry.visit_reason)}</p>
+                        <p className="text-sm text-blue-600">
+                          Dr. {entry.doctors?.name || 'Unknown'} - {entry.doctors?.specialization || ''}
+                        </p>
                         <p className="text-xs text-gray-500">
                           Registered: {new Date(entry.created_at).toLocaleTimeString()}
                         </p>

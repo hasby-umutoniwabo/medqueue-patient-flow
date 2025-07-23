@@ -98,11 +98,11 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
       if (updateError) {
         console.error('Error updating OTP:', updateError);
       }
-      // Check if doctor exists in profiles - use OR condition properly
+      // Check if doctor exists in doctors table - use OR condition properly
       const { data: doctors, error: doctorError } = await supabase
-        .from('profiles')
+        .from('doctors')
         .select('*')
-        .or(`phone_number.eq.${contactInfo},email.eq.${contactInfo}`);
+        .or(`name.eq.${contactInfo},email.eq.${contactInfo}`);
       console.log('Doctor lookup result:', doctors, doctorError, 'ContactInfo:', contactInfo);
       if (doctorError || !doctors || doctors.length === 0) {
         throw new Error('Doctor not found in system');
@@ -110,7 +110,7 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
       const doctor = doctors[0];
       toast({
         title: "Login Successful",
-        description: `Welcome, ${doctor.full_name}!`,
+        description: `Welcome, ${doctor.name}!`,
       });
       // Store doctor info in localStorage for session management
       localStorage.setItem('medqueue_doctor', JSON.stringify(doctor));
@@ -145,7 +145,7 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
               Doctor Login
             </CardTitle>
             <CardDescription className="text-slate-200">
-              Enter your phone number or email
+              Enter your name or email address
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
@@ -159,7 +159,7 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
             
             <form onSubmit={handleSendOTP} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="contact_info" className="text-lg">Phone Number or Email</Label>
+                <Label htmlFor="contact_info" className="text-lg">Doctor Name or Email</Label>
                 <Input
                   id="contact_info"
                   type="text"
@@ -167,7 +167,7 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
                   value={contactInfo}
                   onChange={(e) => setContactInfo(e.target.value)}
                   className="h-12 text-lg"
-                  placeholder="Enter phone or email"
+                  placeholder="Enter your name or email"
                   autoFocus
                 />
               </div>

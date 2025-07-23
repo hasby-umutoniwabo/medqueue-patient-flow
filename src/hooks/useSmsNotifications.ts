@@ -9,11 +9,14 @@ interface Patient {
 }
 
 interface SMSHookReturn {
-  sendWelcomeSMS: (patient: Patient, queuePosition: number) => Promise<boolean>;
+  sendWelcomeSMS: (patient: Patient, queuePosition: number, doctorName?: string) => Promise<boolean>;
   sendPatientCalledSMS: (patient: Patient) => Promise<boolean>;
   sendPositionUpdateSMS: (patient: Patient, position: number) => Promise<boolean>;
   sendYouAreNextSMS: (patient: Patient) => Promise<boolean>;
   sendTop5SMS: (patient: Patient) => Promise<boolean>;
+  sendTop3SMS: (patient: Patient) => Promise<boolean>;
+  sendTop2SMS: (patient: Patient) => Promise<boolean>;
+  sendNoShowSMS: (patient: Patient) => Promise<boolean>;
   isLoading: boolean;
   isSMSEnabled: boolean;
 }
@@ -24,7 +27,7 @@ export const useSmsNotifications = (): SMSHookReturn => {
 
   const isSMSEnabled = smsService.isConfigured();
 
-  const sendWelcomeSMS = async (patient: Patient, queuePosition: number): Promise<boolean> => {
+  const sendWelcomeSMS = async (patient: Patient, queuePosition: number, doctorName?: string): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
       return false;
@@ -32,7 +35,7 @@ export const useSmsNotifications = (): SMSHookReturn => {
 
     setIsLoading(true);
     try {
-      const result = await smsService.sendWelcomeMessage(patient, queuePosition);
+      const result = await smsService.sendWelcomeMessage(patient, queuePosition, doctorName);
       
       if (result.success) {
         toast({
@@ -223,12 +226,129 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  const sendTop3SMS = async (patient: Patient): Promise<boolean> => {
+    if (!isSMSEnabled) {
+      console.warn('SMS service not configured');
+      return false;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await smsService.sendTop3Message(patient);
+      
+      if (result.success) {
+        toast({
+          title: "Top 3 Notification Sent",
+          description: `SMS sent to ${patient.full_name}`,
+        });
+        return true;
+      } else {
+        console.error('Failed to send top 3 SMS:', result.error);
+        toast({
+          title: "SMS Failed",
+          description: result.error || "Failed to send top 3 notification",
+          variant: "destructive",
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('Top 3 SMS error:', error);
+      toast({
+        title: "SMS Error",
+        description: "An error occurred while sending top 3 notification",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendTop2SMS = async (patient: Patient): Promise<boolean> => {
+    if (!isSMSEnabled) {
+      console.warn('SMS service not configured');
+      return false;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await smsService.sendTop2Message(patient);
+      
+      if (result.success) {
+        toast({
+          title: "Top 2 Notification Sent",
+          description: `SMS sent to ${patient.full_name}`,
+        });
+        return true;
+      } else {
+        console.error('Failed to send top 2 SMS:', result.error);
+        toast({
+          title: "SMS Failed",
+          description: result.error || "Failed to send top 2 notification",
+          variant: "destructive",
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('Top 2 SMS error:', error);
+      toast({
+        title: "SMS Error",
+        description: "An error occurred while sending top 2 notification",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendNoShowSMS = async (patient: Patient): Promise<boolean> => {
+    if (!isSMSEnabled) {
+      console.warn('SMS service not configured');
+      return false;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await smsService.sendNoShowMessage(patient);
+      
+      if (result.success) {
+        toast({
+          title: "No-Show Notification Sent",
+          description: `SMS sent to ${patient.full_name}`,
+        });
+        return true;
+      } else {
+        console.error('Failed to send no-show SMS:', result.error);
+        toast({
+          title: "SMS Failed",
+          description: result.error || "Failed to send no-show notification",
+          variant: "destructive",
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('No-show SMS error:', error);
+      toast({
+        title: "SMS Error",
+        description: "An error occurred while sending no-show notification",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return {
     sendWelcomeSMS,
     sendPatientCalledSMS,
     sendPositionUpdateSMS,
     sendYouAreNextSMS,
     sendTop5SMS,
+    sendTop3SMS,
+    sendTop2SMS,
+    sendNoShowSMS,
     isLoading,
     isSMSEnabled
   };
