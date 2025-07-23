@@ -149,6 +149,36 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  async sendTop3Message(patient: Patient): Promise<SMSResponse> {
+    const validatedPhone = this.validatePhone(patient.phone_number);
+    if (!validatedPhone) {
+      return { success: false, error: 'Invalid phone number format' };
+    }
+
+    const message = `Dear ${patient.full_name}, you're now in the top 3! Please prepare and stay very close to the medical area.`;
+    return this.sendSMS(validatedPhone, message);
+  }
+
+  async sendTop2Message(patient: Patient): Promise<SMSResponse> {
+    const validatedPhone = this.validatePhone(patient.phone_number);
+    if (!validatedPhone) {
+      return { success: false, error: 'Invalid phone number format' };
+    }
+
+    const message = `Dear ${patient.full_name}, you're 2nd in line. Please be ready as you'll be called very soon.`;
+    return this.sendSMS(validatedPhone, message);
+  }
+
+  async sendNoShowMessage(patient: Patient): Promise<SMSResponse> {
+    const validatedPhone = this.validatePhone(patient.phone_number);
+    if (!validatedPhone) {
+      return { success: false, error: 'Invalid phone number format' };
+    }
+
+    const message = `Dear ${patient.full_name}, it's been more than 5 minutes since you were called. We've moved to the next patient and you're marked as no-show. Please visit reception to reschedule.`;
+    return this.sendSMS(validatedPhone, message);
+  }
+
   isConfigured(): boolean {
     return !!(this.config.token && this.config.sender && this.config.apiUrl);
   }

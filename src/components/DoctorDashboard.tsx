@@ -45,7 +45,7 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPatient, setCurrentPatient] = useState<QueueEntry | null>(null);
   const { toast } = useToast();
-  const { sendPatientCalledSMS, sendYouAreNextSMS } = useSmsNotifications();
+  const { sendPatientCalledSMS, sendYouAreNextSMS, sendTop5SMS, sendTop3SMS, sendTop2SMS, sendNoShowSMS } = useSmsNotifications();
 
   const handleLogout = () => {
     localStorage.removeItem('medqueue_doctor');
@@ -119,6 +119,46 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
       console.error('Error fetching queue:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Send position notifications to patients in top positions
+  const sendPositionNotifications = async () => {
+    try {
+      const filteredEntries = queueEntries.filter(entry => entry.doctor_id === selectedDoctorId);
+      const waitingPatients = filteredEntries
+        .filter(entry => entry.status === 'waiting')
+        .sort((a, b) => a.queue_number - b.queue_number);
+
+      // Send notifications only to patients in top 5 positions
+      for (let i = 0; i < Math.min(waitingPatients.length, 5); i++) {
+        const entry = waitingPatients[i];
+        const position = i + 1; // Position in waiting queue (1st, 2nd, 3rd, etc.)
+        const patient = {
+          id: entry.id,
+          full_name: entry.patients.full_name,
+          phone_number: entry.patients.phone_number
+        };
+
+        // Send notifications based on position (but avoid spam - only key positions)
+        try {
+          if (position === 2) {
+            // 2nd in line - very important notification
+            await sendTop2SMS(patient);
+          } else if (position === 3) {
+            // 3rd in line
+            await sendTop3SMS(patient);
+          } else if (position === 5) {
+            // 5th in line - you're in top 5 notification
+            await sendTop5SMS(patient);
+          }
+          // Skip position 1 (next) and 4 to avoid too many notifications
+        } catch (error) {
+          console.error(`Error sending position notification to ${patient.full_name}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error in sendPositionNotifications:', error);
     }
   };
 
@@ -197,6 +237,9 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
       // Refresh data after calling patient
       await fetchQueueEntries();
 
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
+
       toast({
         title: "Patient Called",
         description: `Patient ${nextPatient.queue_number} has been called.`,
@@ -226,6 +269,9 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
       // Refresh data after completion
       await fetchQueueEntries();
 
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
+
       toast({
         title: "Consultation Completed",
         description: "Patient has been marked as completed.",
@@ -242,6 +288,9 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
 
   const markNoShow = async (patientId: string) => {
     try {
+      // First, get the patient information before marking as no-show
+      const patientEntry = queueEntries.find(entry => entry.id === patientId);
+      
       const { error } = await supabase
         .from('queue_entries')
         .update({ status: 'cancelled' })
@@ -249,12 +298,29 @@ const DoctorDashboard = ({ onLogout }: DoctorDashboardProps) => {
 
       if (error) throw error;
 
+      // Send no-show SMS notification to the patient
+      if (patientEntry) {
+        const noShowPatientForSMS = {
+          id: patientEntry.id,
+          full_name: patientEntry.patients.full_name,
+          phone_number: patientEntry.patients.phone_number
+        };
+        
+        // Send no-show SMS in background, don't block the UI
+        sendNoShowSMS(noShowPatientForSMS).catch(error => {
+          console.error('Failed to send no-show SMS:', error);
+        });
+      }
+
       // Refresh data after marking no show
       await fetchQueueEntries();
 
+      // Send position notifications to patients in top positions
+      await sendPositionNotifications();
+
       toast({
         title: "Marked as No Show",
-        description: "Patient has been marked as no show.",
+        description: "Patient has been marked as no show and notified via SMS.",
       });
     } catch (error) {
       console.error('Error marking no show:', error);

@@ -103,161 +103,7 @@ const AnnouncementScreen = () => {
     };
   }, []);
 
-  // Test database connection
-  const testDatabase = async () => {
-    try {
-      console.log('Testing database connection...');
-      
-      // Test doctors table
-      const { data: doctorsTest, error: doctorsError } = await supabase
-        .from('doctors')
-        .select('*');
-      console.log('Doctors table:', { data: doctorsTest, error: doctorsError });
-      
-      // Test patients table
-      const { data: patientsTest, error: patientsError } = await supabase
-        .from('patients')
-        .select('*');
-      console.log('Patients table:', { data: patientsTest, error: patientsError });
-      
-      // Test queue_entries table
-      const { data: queueTest, error: queueError } = await supabase
-        .from('queue_entries')
-        .select('*');
-      console.log('Queue entries table:', { data: queueTest, error: queueError });
-      
-      alert(`Database test complete. Check console for details. 
-Doctors: ${doctorsTest?.length || 0}, 
-Patients: ${patientsTest?.length || 0}, 
-Queue: ${queueTest?.length || 0}`);
-      
-    } catch (error) {
-      console.error('Database test failed:', error);
-      alert('Database test failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    }
-  };
-  const addTestData = async () => {
-    try {
-      console.log('Adding test data directly...');
-      
-      // Clear existing data in the correct order (foreign keys first)
-      await supabase.from('queue_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('patients').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('doctors').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      
-      // Add doctors first
-      const { data: doctors, error: doctorError } = await supabase
-        .from('doctors')
-        .insert([
-          { name: 'Dr. Sarah Johnson', specialization: 'General Medicine', is_available: true },
-          { name: 'Dr. Michael Chen', specialization: 'Cardiology', is_available: true },
-          { name: 'Dr. Emily Davis', specialization: 'Pediatrics', is_available: true }
-        ])
-        .select();
-
-      if (doctorError) {
-        console.error('Doctor error:', doctorError);
-        alert('Error adding doctors: ' + doctorError.message);
-        return;
-      }
-      
-      console.log('Added doctors:', doctors);
-
-      // Add patients with national_id (required field)
-      const { data: patients, error: patientError } = await supabase
-        .from('patients')
-        .insert([
-          { 
-            full_name: 'John Smith', 
-            phone_number: '+250781111111', 
-            date_of_birth: '1990-05-15',
-            national_id: '1199050123456'
-          },
-          { 
-            full_name: 'Mary Johnson', 
-            phone_number: '+250782222222', 
-            date_of_birth: '1985-08-22',
-            national_id: '1198508223456'
-          },
-          { 
-            full_name: 'David Wilson', 
-            phone_number: '+250783333333', 
-            date_of_birth: '1995-12-03',
-            national_id: '1199512034567'
-          },
-          { 
-            full_name: 'Sarah Brown', 
-            phone_number: '+250784444444', 
-            date_of_birth: '1988-07-11',
-            national_id: '1198807114567'
-          }
-        ])
-        .select();
-
-      if (patientError) {
-        console.error('Patient error:', patientError);
-        alert('Error adding patients: ' + patientError.message);
-        return;
-      }
-      
-      console.log('Added patients:', patients);
-
-      // Add queue entries with proper foreign key references
-      if (doctors && patients && doctors.length > 0 && patients.length > 0) {
-        const { data: queueEntries, error: queueError } = await supabase
-          .from('queue_entries')
-          .insert([
-            {
-              patient_id: patients[0].id,
-              doctor_id: doctors[0].id,
-              visit_reason: 'Regular checkup',
-              status: 'in_progress',
-              queue_number: 1
-            },
-            {
-              patient_id: patients[1].id,
-              doctor_id: doctors[0].id,
-              visit_reason: 'Follow-up consultation',
-              status: 'waiting',
-              queue_number: 2
-            },
-            {
-              patient_id: patients[2].id,
-              doctor_id: doctors[1].id,
-              visit_reason: 'Heart consultation',
-              status: 'waiting',
-              queue_number: 1
-            },
-            {
-              patient_id: patients[3].id,
-              doctor_id: doctors[2].id,
-              visit_reason: 'Child vaccination',
-              status: 'waiting',
-              queue_number: 1
-            }
-          ])
-          .select();
-
-        if (queueError) {
-          console.error('Queue error:', queueError);
-          alert('Error adding queue entries: ' + queueError.message);
-          return;
-        }
-        
-        console.log('Added queue entries:', queueEntries);
-      }
-      
-      // Refresh data
-      await fetchDoctors();
-      await fetchQueueEntries();
-      
-      alert('Test data added successfully!');
-      
-    } catch (error) {
-      console.error('Error in addTestData:', error);
-      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    }
-  };
+  // Refresh data function
   const initializeSampleData = async () => {
     try {
       console.log('Starting sample data initialization...');
@@ -511,12 +357,6 @@ Queue: ${queueTest?.length || 0}`);
           </div>
         </div>
 
-        {/* Debug Info */}
-        <div className="mb-4 text-xs">
-          <div>Doctors: {doctors.length} | Queue Entries: {queueEntries.length} | Filtered: {filteredQueueEntries.length}</div>
-          <div>Current Patient: {currentPatient ? currentPatient.patients.full_name : 'None'} | Waiting: {totalWaiting} | Completed: {completedToday}</div>
-        </div>
-
         {/* Doctor Selection and Controls */}
         <div className="mb-6">
           <Card className="bg-white/95 backdrop-blur-sm border-0 shadow-xl">
@@ -526,7 +366,7 @@ Queue: ${queueTest?.length || 0}`);
                   <Filter className="h-5 w-5 text-gray-600" />
                   <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
                     <SelectTrigger className="w-64">
-                      <SelectValue placeholder="Select doctor to view" />
+                      <SelectValue placeholder="Select doctor to view queue" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Doctors</SelectItem>
@@ -545,31 +385,21 @@ Queue: ${queueTest?.length || 0}`);
                     </div>
                   )}
                 </div>
-                <Button 
-                  onClick={refreshData}
-                  variant="outline" 
-                  size="sm"
-                  className="flex items-center gap-2"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh
-                </Button>
-                <Button 
-                  onClick={testDatabase}
-                  variant="outline" 
-                  size="sm"
-                  className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100"
-                >
-                  Test DB
-                </Button>
-                <Button 
-                  onClick={addTestData}
-                  variant="outline" 
-                  size="sm"
-                  className="flex items-center gap-2 bg-red-50 hover:bg-red-100"
-                >
-                  Add Test Data
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={refreshData}
+                    variant="outline" 
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Update Display
+                  </Button>
+                  <div className="text-sm text-gray-500 flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    Auto-refreshes every 30 seconds
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -583,7 +413,7 @@ Queue: ${queueTest?.length || 0}`);
                 <div className="text-center">
                   <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2">
                     <User className="h-8 w-8 text-blue-600" />
-                    {selectedDoctor === 'all' ? 'Now Serving' : `${getSelectedDoctorInfo()?.name || 'Doctor'} - Now Serving`}
+                    {selectedDoctor === 'all' ? 'Currently Being Served' : `${getSelectedDoctorInfo()?.name || 'Doctor'} - Currently Serving`}
                   </h2>
                   {currentPatient ? (
                     <div className="space-y-4">
@@ -608,8 +438,8 @@ Queue: ${queueTest?.length || 0}`);
                       <div className="text-6xl font-bold text-gray-400 mb-4">---</div>
                       <p className="text-xl text-gray-500">
                         {selectedDoctor === 'all' 
-                          ? 'No patient currently being served' 
-                          : `${getSelectedDoctorInfo()?.name || 'Doctor'} is available`
+                          ? 'No patient currently being seen' 
+                          : `${getSelectedDoctorInfo()?.name || 'Doctor'} is ready for next patient`
                         }
                       </p>
                     </div>
@@ -618,41 +448,41 @@ Queue: ${queueTest?.length || 0}`);
               </CardContent>
             </Card>
 
-            {/* Statistics */}
+            {/* Patient Queue Statistics */}
             <div className="grid grid-cols-3 gap-4 mt-6">
               <Card className="bg-white/90 backdrop-blur-sm border-0">
                 <CardContent className="p-4 text-center">
                   <div className="text-3xl font-bold text-blue-600">{totalWaiting}</div>
-                  <div className="text-sm text-gray-600">Waiting</div>
+                  <div className="text-sm text-gray-600">Patients Waiting</div>
                 </CardContent>
               </Card>
               <Card className="bg-white/90 backdrop-blur-sm border-0">
                 <CardContent className="p-4 text-center">
                   <div className="text-3xl font-bold text-green-600">{completedToday}</div>
-                  <div className="text-sm text-gray-600">Completed</div>
+                  <div className="text-sm text-gray-600">Seen Today</div>
                 </CardContent>
               </Card>
               <Card className="bg-white/90 backdrop-blur-sm border-0">
                 <CardContent className="p-4 text-center">
                   <div className="text-3xl font-bold text-purple-600">{totalToday}</div>
-                  <div className="text-sm text-gray-600">Total {selectedDoctor === 'all' ? 'Today' : 'for Doctor'}</div>
+                  <div className="text-sm text-gray-600">Total Visits {selectedDoctor === 'all' ? 'Today' : 'for Doctor'}</div>
                 </CardContent>
               </Card>
             </div>
           </div>
 
-          {/* Waiting Queue */}
+          {/* Next Patients in Queue */}
           <div>
             <Card className="bg-white/95 backdrop-blur-sm border-0 shadow-xl">
               <CardContent className="p-6">
                 <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
                   <Clock className="h-6 w-6 text-blue-600" />
-                  {selectedDoctor === 'all' ? 'Up Next' : `${getSelectedDoctorInfo()?.name || 'Doctor'} Queue`}
+                  {selectedDoctor === 'all' ? 'Next Patients' : `Queue for ${getSelectedDoctorInfo()?.name || 'Doctor'}`}
                 </h3>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {waitingPatients.length === 0 ? (
                     <p className="text-center text-gray-500 py-8">
-                      {selectedDoctor === 'all' ? 'No patients waiting' : 'No patients in this doctor\'s queue'}
+                      {selectedDoctor === 'all' ? 'No patients currently waiting' : `No patients waiting for ${getSelectedDoctorInfo()?.name || 'this doctor'}`}
                     </p>
                   ) : (
                     waitingPatients.map((entry, index) => (
@@ -684,7 +514,7 @@ Queue: ${queueTest?.length || 0}`);
                               {entry.visit_reason}
                             </div>
                             <div className="text-xs text-green-600 mt-1">
-                              Est. wait: {(index + 1) * 15} mins
+                              Estimated wait: {(index + 1) * 15} minutes
                             </div>
                           </div>
                           <div className="text-right">
@@ -692,7 +522,7 @@ Queue: ${queueTest?.length || 0}`);
                               {index + 1}
                             </div>
                             <div className="text-xs text-gray-500">
-                              in queue
+                              position in queue
                             </div>
                           </div>
                         </div>
@@ -766,13 +596,14 @@ Queue: ${queueTest?.length || 0}`);
           </div>
         </div>
 
-        {/* Footer */}
+        {/* Patient Instructions */}
         <div className="text-center mt-8 text-blue-100">
-          <p className="text-lg">Please wait for your number to be called</p>
-          <p className="text-sm mt-2">Thank you for your patience</p>
+          <p className="text-xl font-semibold">Please listen for your queue number to be called</p>
+          <p className="text-lg mt-2">When your number is called, please proceed to the consultation room</p>
+          <p className="text-sm mt-4 text-blue-200">Thank you for your patience • This display updates automatically</p>
           {selectedDoctor !== 'all' && getSelectedDoctorInfo() && (
             <p className="text-sm mt-2 text-blue-200">
-              Viewing queue for Dr. {getSelectedDoctorInfo()?.name} ({getSelectedDoctorInfo()?.specialization})
+              Currently viewing: Dr. {getSelectedDoctorInfo()?.name} - {getSelectedDoctorInfo()?.specialization}
             </p>
           )}
         </div>
