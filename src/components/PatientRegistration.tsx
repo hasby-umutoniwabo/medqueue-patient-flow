@@ -236,51 +236,6 @@ const PatientRegistration = () => {
     }
   };
 
-  const handleNewPatientSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      console.log('Creating new patient:', formData);
-      // Create new patient
-      const { data: insertData, error: patientError } = await supabase
-        .from('patients')
-        .insert([
-          {
-            national_id: formData.national_id,
-            full_name: formData.full_name,
-            phone_number: formData.phone_number,
-            date_of_birth: formData.date_of_birth,
-            emergency_contact: formData.emergency_contact || null,
-          },
-        ])
-        .select('*')
-        .single();
-      console.log('Patient insert result:', insertData, patientError);
-      if (patientError) {
-        console.error('Patient creation error:', patientError);
-        throw patientError;
-      }
-      
-      // Store the created patient data
-      setExistingPatient(insertData);
-      
-      toast({
-        title: "Registration Successful",
-        description: "Your information has been saved. Please select your reason for visit.",
-      });
-      setStep('visit_reason');
-    } catch (error) {
-      console.error('Registration error:', error);
-      toast({
-        title: "Registration Failed",
-        description: "Please try again or contact staff for assistance.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleVisitReasonSubmit = async () => {
     setIsSubmitting(true);
     try {
@@ -397,7 +352,7 @@ const PatientRegistration = () => {
     return Object.keys(errors).length === 0;
   };
 
-  const handleNewPatientContinue = () => {
+  const handleNewPatientContinue = async () => {
     // For existing patients, we don't need to validate as strictly since they're already in the system
     if (existingPatient) {
       // Just ensure we have the doctor_id and proceed
@@ -408,12 +363,59 @@ const PatientRegistration = () => {
     // For new patients, do full validation
     if (validateNewPatientForm()) {
       // Format phone numbers before proceeding
-      setFormData(prev => ({
-        ...prev,
-        phone_number: formatPhoneNumber(prev.phone_number),
-        emergency_contact: prev.emergency_contact ? formatPhoneNumber(prev.emergency_contact) : ''
-      }));
-      setStep('doctor_selection');
+      const formattedData = {
+        ...formData,
+        phone_number: formatPhoneNumber(formData.phone_number),
+        emergency_contact: formData.emergency_contact ? formatPhoneNumber(formData.emergency_contact) : ''
+      };
+      
+      setFormData(formattedData);
+      
+      // Create the new patient in the database
+      setIsSubmitting(true);
+      try {
+        console.log('Creating new patient:', formattedData);
+        
+        const { data: insertData, error: patientError } = await supabase
+          .from('patients')
+          .insert([
+            {
+              national_id: formattedData.national_id,
+              full_name: formattedData.full_name,
+              phone_number: formattedData.phone_number,
+              date_of_birth: formattedData.date_of_birth,
+              emergency_contact: formattedData.emergency_contact || null,
+            },
+          ])
+          .select('*')
+          .single();
+          
+        console.log('Patient insert result:', insertData, patientError);
+        
+        if (patientError) {
+          console.error('Patient creation error:', patientError);
+          throw patientError;
+        }
+        
+        // Store the created patient data
+        setExistingPatient(insertData);
+        
+        toast({
+          title: "Registration Successful",
+          description: "Your information has been saved. Please select your reason for visit.",
+        });
+        
+        setStep('visit_reason');
+      } catch (error) {
+        console.error('Registration error:', error);
+        toast({
+          title: "Registration Failed",
+          description: "Please try again or contact staff for assistance.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
     } else {
       toast({
         title: "Validation Error",
@@ -516,7 +518,10 @@ const PatientRegistration = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6">
-              <form onSubmit={handleNewPatientSubmit} className="space-y-4">
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleNewPatientContinue();
+              }} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="full_name" className="flex items-center gap-2">
                     <User className="h-4 w-4" />
@@ -642,7 +647,7 @@ const PatientRegistration = () => {
                     disabled={isSubmitting}
                     className="flex-1 bg-blue-600 hover:bg-blue-700"
                   >
-                    {isSubmitting ? "Saving..." : "Continue"}
+                    {isSubmitting ? "Registering..." : "Continue"}
                   </Button>
                 </div>
               </form>
