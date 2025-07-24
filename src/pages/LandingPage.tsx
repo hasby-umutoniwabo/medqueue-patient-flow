@@ -1,35 +1,45 @@
 import { useNavigate } from 'react-router-dom';
+import { 
+    Clock, 
+    Smartphone, 
+    UserCheck, 
+    Bell, 
+    BarChart3, 
+    Shield 
+} from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import './landing-page.css';
 
 const LandingPage = () => {
     const navigate = useNavigate();
     const features = [
         {
-            icon: 'fas fa-clock',
+            icon: Clock,
             title: 'Real-time Queue Management',
             description: 'Track your position in the queue and get real-time updates on wait times.'
         },
         {
-            icon: 'fas fa-mobile-alt',
+            icon: Smartphone,
             title: 'Mobile-First Design',
             description: 'Access MedQueue from any device with our responsive, mobile-optimized interface.'
         },
         {
-            icon: 'fas fa-user-md',
+            icon: UserCheck,
             title: 'Healthcare Provider Dashboard',
             description: 'Comprehensive tools for healthcare providers to manage patient queues efficiently.'
         },
         {
-            icon: 'fas fa-bell',
+            icon: Bell,
             title: 'Smart Notifications',
             description: 'Get notified when it\'s almost your turn, reducing wait times and improving experience.'
         },
         {
-            icon: 'fas fa-chart-line',
+            icon: BarChart3,
             title: 'Analytics & Insights',
             description: 'Detailed analytics help healthcare facilities optimize their operations.'
         },
         {
-            icon: 'fas fa-shield-alt',
+            icon: Shield,
             title: 'Secure & Private',
             description: 'Your medical information is protected with enterprise-grade security measures.'
         }
@@ -158,16 +168,26 @@ const LandingPage = () => {
                         </p>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {features.map((feature, index) => (
-                            <div key={index} className="bg-white rounded-xl p-8 shadow-lg card-hover fade-in" 
-                                 style={{ animationDelay: `${index * 0.1}s` }}>
-                                <div className="text-4xl feature-icon mb-6">
-                                    <i className={feature.icon}></i>
-                                </div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-4">{feature.title}</h3>
-                                <p className="text-gray-600 leading-relaxed">{feature.description}</p>
-                            </div>
+                            <Card 
+                                key={index} 
+                                className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-0 bg-white"
+                            >
+                                <CardHeader className="text-center">
+                                    <div className="mx-auto w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                                        <feature.icon className="h-6 w-6 text-white" />
+                                    </div>
+                                    <CardTitle className="text-lg group-hover:text-blue-600 transition-colors duration-300">
+                                        {feature.title}
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <CardDescription className="text-center text-gray-600">
+                                        {feature.description}
+                                    </CardDescription>
+                                </CardContent>
+                            </Card>
                         ))}
                     </div>
                 </div>

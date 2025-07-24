@@ -13,7 +13,7 @@ const Index = () => {
         <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-blue-600">MedQueue</h1>
+              <Link to='/' className="text-3xl font-bold gradient-text">MedQueue</Link>
               <p className="text-gray-600 mt-1">Digital Patient Queue Management System</p>
             </div>
             <Badge className="bg-green-100 text-green-800 text-sm px-3 py-1">
