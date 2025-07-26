@@ -216,7 +216,7 @@ const LandingPage = () => {
                                     <div className="bg-green-100 p-2 rounded-lg mr-4">
                                         <i className="fas fa-check text-green-600"></i>
                                     </div>
-                                    <span className="text-gray-700">Supports Kinyarwanda, English, and French</span>
+                                    <span className="text-gray-700">Supports English</span>
                                 </div>
                                 <div className="flex items-center">
                                     <div className="bg-green-100 p-2 rounded-lg mr-4">
