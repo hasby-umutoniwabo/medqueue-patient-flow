@@ -3,12 +3,15 @@ import DoctorLogin from './DoctorLogin';
 import DoctorDashboard from './DoctorDashboard';
 import Navigation from './Navigation';
 
+// Authentication wrapper component that handles doctor login/logout flow
+// Shows login screen if not authenticated, dashboard if authenticated
 const DoctorAuth = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if doctor is already logged in
+    // Check if doctor is already logged in from a previous session
+    // This allows them to stay logged in across browser refreshes
     const doctorData = localStorage.getItem('medqueue_doctor');
     if (doctorData) {
       setIsLoggedIn(true);
@@ -17,15 +20,18 @@ const DoctorAuth = () => {
   }, []);
 
   const handleLoginSuccess = () => {
+    // Called when the login component successfully authenticates a doctor
     setIsLoggedIn(true);
   };
 
   const handleLogout = () => {
+    // Clear the session and return to login screen
     localStorage.removeItem('medqueue_doctor');
     setIsLoggedIn(false);
   };
 
   if (isLoading) {
+    // Show loading spinner while we check their login status
     return (
       <>
         <Navigation variant="minimal" />
@@ -40,6 +46,7 @@ const DoctorAuth = () => {
   }
 
   if (!isLoggedIn) {
+    // Show login screen if they haven't authenticated yet
     return (
       <>
         <Navigation variant="minimal" />
@@ -48,6 +55,7 @@ const DoctorAuth = () => {
     );
   }
 
+  // Show the main dashboard if they're logged in
   return (
     <>
       <Navigation variant="minimal" />

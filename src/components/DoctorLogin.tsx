@@ -7,15 +7,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Phone, Mail, Shield } from "lucide-react";
 
+// Props for the login component - callback when login succeeds
 interface DoctorLoginProps {
   onLoginSuccess: () => void;
 }
 
+// Two-step authentication component for doctors
+// Step 1: Enter name/email, Step 2: Verify OTP code
 const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
+  // Track which step of authentication we're on
   const [step, setStep] = useState<'contact' | 'otp'>('contact');
   const [contactInfo, setContactInfo] = useState('');
   const [otpCode, setOtpCode] = useState('');
-  const [otpId, setOtpId] = useState<string>('');
+  const [otpId, setOtpId] = useState<string>(''); // Links the OTP to this login session
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -27,20 +31,22 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
     try {
       console.log('Sending OTP for:', contactInfo);
       let otpId = '';
-      // Try to call the send_otp function
+      
+      // First, try the proper OTP function (if it exists)
       const { data, error } = await supabase.rpc('send_otp', {
         contact_info: contactInfo
       });
+      
       if (!error && data) {
         otpId = data;
       } else {
-        // Fallback: Insert OTP directly for dev
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min expiry
+        // Development fallback: create a simple OTP directly in the database
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes from now
         const { data: insertData, error: insertError } = await supabase
           .from('doctor_otps')
           .insert([
             {
-              otp_code: '10001',
+              otp_code: '10001', // Fixed code for development - easy to remember!
               phone_or_email: contactInfo,
               expires_at: expiresAt,
               used: false,
@@ -53,8 +59,9 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
         }
         otpId = insertData.id;
       }
+      
       setOtpId(otpId);
-      setStep('otp');
+      setStep('otp'); // Move to the OTP verification step
       toast({
         title: "OTP Sent",
         description: "Development Mode: Use OTP code 10001",
@@ -77,20 +84,23 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
     setIsSubmitting(true);
     try {
       console.log('Verifying OTP:', otpCode, 'for ID:', otpId);
-      // Check if OTP is valid
+      
+      // Check if the OTP code they entered matches what we have in the database
       const { data: otpRecord, error: otpError } = await supabase
         .from('doctor_otps')
         .select('*')
         .eq('id', otpId)
         .eq('otp_code', otpCode)
-        .eq('used', false)
-        .gt('expires_at', new Date().toISOString())
+        .eq('used', false) // Make sure it hasn't been used already
+        .gt('expires_at', new Date().toISOString()) // Make sure it hasn't expired
         .single();
+      
       console.log('OTP verification result:', otpRecord, otpError);
       if (otpError || !otpRecord) {
         throw new Error('Invalid or expired OTP');
       }
-      // Mark OTP as used
+      
+      // Mark this OTP as used so it can't be used again
       const { error: updateError } = await supabase
         .from('doctor_otps')
         .update({ used: true })
@@ -98,23 +108,27 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
       if (updateError) {
         console.error('Error updating OTP:', updateError);
       }
-      // Check if doctor exists in doctors table - use OR condition properly
+      
+      // Now find the doctor in our system - they can login with name or email
       const { data: doctors, error: doctorError } = await supabase
         .from('doctors')
         .select('*')
         .or(`name.eq.${contactInfo},email.eq.${contactInfo}`);
+      
       console.log('Doctor lookup result:', doctors, doctorError, 'ContactInfo:', contactInfo);
       if (doctorError || !doctors || doctors.length === 0) {
         throw new Error('Doctor not found in system');
       }
+      
       const doctor = doctors[0];
       toast({
         title: "Login Successful",
         description: `Welcome, ${doctor.name}!`,
       });
-      // Store doctor info in localStorage for session management
+      
+      // Save their login session so they don't have to login again
       localStorage.setItem('medqueue_doctor', JSON.stringify(doctor));
-      onLoginSuccess();
+      onLoginSuccess(); // Tell the parent component we're logged in
     } catch (error) {
       console.error('Error verifying OTP:', error);
       toast({
@@ -128,13 +142,15 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
   };
 
   const resetForm = () => {
+    // Go back to the first step and clear all form data
+    // Useful if they want to try a different email/name
     setStep('contact');
     setContactInfo('');
     setOtpCode('');
     setOtpId('');
   };
 
-  // Contact Information Entry
+  // STEP 1: Contact Information Entry Screen
   if (step === 'contact') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 flex items-center justify-center">
@@ -186,7 +202,8 @@ const DoctorLogin = ({ onLoginSuccess }: DoctorLoginProps) => {
     );
   }
 
-  // OTP Verification
+  // STEP 2: OTP Verification Screen
+  // They enter the code they received via SMS/email
   if (step === 'otp') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 flex items-center justify-center">
