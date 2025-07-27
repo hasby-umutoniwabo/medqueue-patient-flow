@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { smsService } from '@/services/smsService';
 import { useToast } from '@/hooks/use-toast';
 
+// Patient data structure for SMS notifications
 interface Patient {
   id: string;
   full_name: string;
   phone_number: string;
 }
 
+// All the SMS notification functions this hook provides
+// Covers the complete patient journey from registration to completion
 interface SMSHookReturn {
   sendWelcomeSMS: (patient: Patient, queuePosition: number, doctorName?: string) => Promise<boolean>;
   sendPatientCalledSMS: (patient: Patient) => Promise<boolean>;
@@ -21,12 +24,17 @@ interface SMSHookReturn {
   isSMSEnabled: boolean;
 }
 
+// Custom hook that handles all SMS notifications for the medical queue system
+// Provides consistent error handling and user feedback across all SMS types
 export const useSmsNotifications = (): SMSHookReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
+  // Check if SMS service is properly configured before trying to send
   const isSMSEnabled = smsService.isConfigured();
 
+  // Welcome SMS - sent when patient first joins the queue
+  // Includes their queue number and doctor info to set expectations
   const sendWelcomeSMS = async (patient: Patient, queuePosition: number, doctorName?: string): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -65,6 +73,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Patient called SMS - urgent notification that it's their turn to see the doctor
+  // This is the most important SMS as it tells them to come to the consultation room
   const sendPatientCalledSMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -103,6 +113,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Position update SMS - keeps patients informed about their place in line
+  // Only sends for positions 1-5 to avoid spamming patients who are far back
   const sendPositionUpdateSMS = async (patient: Patient, position: number): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -150,6 +162,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // "You are next" SMS - sent to the patient who will be called after the current one
+  // Helps them prepare and stay nearby so they don't miss their turn
   const sendYouAreNextSMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -188,6 +202,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Top 5 position SMS - notifies patients they're in the top 5
+  // Lets them know they should start getting ready but don't need to rush yet
   const sendTop5SMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -226,6 +242,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Top 3 position SMS - more urgent notification that they're very close
+  // Time to head back to the waiting area if they stepped out
   const sendTop3SMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -264,6 +282,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Top 2 position SMS - very urgent, they're second in line
+  // Should be ready and present in the waiting area
   const sendTop2SMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -302,6 +322,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // No-show SMS - sent when a patient doesn't respond to being called
+  // Informs them they missed their turn and need to re-register if they still want to be seen
   const sendNoShowSMS = async (patient: Patient): Promise<boolean> => {
     if (!isSMSEnabled) {
       console.warn('SMS service not configured');
@@ -340,6 +362,8 @@ export const useSmsNotifications = (): SMSHookReturn => {
     }
   };
 
+  // Return all SMS functions and status indicators
+  // These can be used throughout the app to send notifications at the right times
   return {
     sendWelcomeSMS,
     sendPatientCalledSMS,

@@ -1,3 +1,4 @@
+// Main patient registration component - handles the entire patient journey from ID entry to queue ticket
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Calendar, User, Phone, FileText, AlertCircle, IdCard, MessageSquare, Cl
 import { Checkbox } from "@/components/ui/checkbox";
 import Navigation from "@/components/Navigation";
 
+// Patient form data structure - everything we need to collect from patients
 interface PatientFormData {
   national_id: string;
   full_name: string;
@@ -19,54 +21,68 @@ interface PatientFormData {
   emergency_contact: string;
   visit_reason: 'general_consultation' | 'follow_up' | 'emergency' | 'other';
   doctor_id: string;
-  sms_notifications_enabled: boolean;
+  sms_notifications_enabled: boolean; // Most patients want notifications, so default to true
 }
 
+// Doctor info with queue status - helps patients make informed choices
 interface Doctor {
   id: string;
   name: string;
   specialization: string;
   is_available: boolean;
-  waiting_count?: number;
-  current_patient?: string;
+  waiting_count?: number; // How many patients are waiting for this doctor
+  current_patient?: string; // Name of patient currently being seen
 }
 
 const PatientRegistration = () => {
+  // Step management - guides users through the registration flow
   const [step, setStep] = useState<'nid_entry' | 'new_patient_form' | 'doctor_selection' | 'visit_reason' | 'queue_ticket'>('nid_entry');
+  
+  // Patient identification and data
   const [nationalId, setNationalId] = useState('');
-  const [existingPatient, setExistingPatient] = useState<any>(null);
+  const [existingPatient, setExistingPatient] = useState<any>(null); // Stores patient data if they're already registered
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  
+  // Form data with sensible defaults
   const [formData, setFormData] = useState<PatientFormData>({
     national_id: '',
     full_name: '',
     phone_number: '',
     date_of_birth: '',
     emergency_contact: '',
-    visit_reason: 'general_consultation',
+    visit_reason: 'general_consultation', // Most common reason, so good default
     doctor_id: '',
-    sms_notifications_enabled: true
+    sms_notifications_enabled: true // Most people want to be notified
   });
+  
+  // UI state management
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [queuePosition, setQueuePosition] = useState<number>(0);
   const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
+  
+  // Custom hooks for notifications and feedback
   const { toast } = useToast();
   const { sendWelcomeSMS } = useSmsNotifications();
 
-  // Validation functions
+  // Validation functions - keeping things user-friendly but secure
+  
   const validateNationalId = (nid: string): boolean => {
-    // Rwandan National ID: 16 digits, always starts with 1
+    // Rwandan National ID format: 16 digits, always starts with 1
+    // This is the official format used in Rwanda's national ID system
     const nidRegex = /^1\d{15}$/;
     return nidRegex.test(nid);
   };
 
   const validatePhoneNumber = (phone: string): boolean => {
-    // Rwanda phone numbers: +25007XXXXXXXX or 07XXXXXXXX (10 digits total)
+    // Rwanda phone numbers: +2507XXXXXXXX or 07XXXXXXXX (10 digits total)
+    // We support both international and local formats for user convenience
     const phoneRegex = /^(\+2507|07)\d{8}$/;
     return phoneRegex.test(phone);
   };
 
   const formatPhoneNumber = (phone: string): string => {
-    // Convert 07XXXXXXXX to +2507XXXXXXXX format
+    // Convert local format (07XXXXXXXX) to international format (+2507XXXXXXXX)
+    // This ensures consistency in our database and SMS sending
     if (phone.startsWith('07')) {
       return '+2507' + phone.substring(2); // Remove '07' and add '+2507'
     }
@@ -74,7 +90,8 @@ const PatientRegistration = () => {
   };
 
   const displayPhoneNumber = (phone: string): string => {
-    // Display in +2507XX XXX XXX format for better readability
+    // Make phone numbers more readable: +2507XX XXX XXX
+    // Easier for users to verify their numbers at a glance
     if (phone.startsWith('+2507')) {
       const digits = phone.substring(5);
       return `+2507${digits.substring(0, 2)} ${digits.substring(2, 5)} ${digits.substring(5)}`;
@@ -83,15 +100,18 @@ const PatientRegistration = () => {
   };
 
   useEffect(() => {
+    // Load doctors when component mounts and keep the list fresh
     fetchDoctors();
     
     // Set up real-time subscription for queue updates
+    // This way patients see live updates while selecting their doctor
     const channel = supabase
       .channel('queue-updates')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'queue_entries' },
         () => {
-          // Refresh doctor queue information when queue changes
+          // Only refresh doctor queue info when patients are on the doctor selection step
+          // No need to waste resources if they're not looking at this data
           if (step === 'doctor_selection') {
             fetchDoctors();
           }
@@ -99,33 +119,35 @@ const PatientRegistration = () => {
       )
       .subscribe();
 
+    // Clean up subscription when component unmounts to prevent memory leaks
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [step]);
+  }, [step]); // Re-run when step changes
 
   const fetchDoctors = async () => {
     try {
-      // Fetch doctors
+      // First, get all available doctors from the database
       const { data: doctorsData, error: doctorsError } = await supabase
         .from('doctors')
         .select('*')
-        .eq('is_available', true)
-        .order('name', { ascending: true });
+        .eq('is_available', true) // Only show doctors who are currently available
+        .order('name', { ascending: true }); // Alphabetical order for consistency
 
       if (doctorsError) throw doctorsError;
 
-      // Fetch queue information for each doctor
+      // Now enhance each doctor's info with current queue status
+      // This helps patients make informed decisions about which doctor to see
       const doctorsWithQueue = await Promise.all(
         (doctorsData || []).map(async (doctor) => {
-          // Get waiting count
+          // Get the count of patients currently waiting for this doctor
           const { count: waitingCount } = await supabase
             .from('queue_entries')
             .select('*', { count: 'exact', head: true })
             .eq('doctor_id', doctor.id)
             .eq('status', 'waiting');
 
-          // Get current patient (in progress)
+          // Find out if this doctor is currently seeing a patient
           const { data: currentPatientData } = await supabase
             .from('queue_entries')
             .select(`
@@ -141,6 +163,7 @@ const PatientRegistration = () => {
           return {
             ...doctor,
             waiting_count: waitingCount || 0,
+            // Handle the case where patients might be an array or single object
             current_patient: Array.isArray(currentPatientData?.patients) 
               ? (currentPatientData.patients.length > 0 ? currentPatientData.patients[0].full_name : null)
               : (currentPatientData?.patients as any)?.full_name || null
@@ -162,15 +185,16 @@ const PatientRegistration = () => {
   const handleNationalIdSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Clear previous validation errors
+    // Start with a clean slate - clear any previous error messages
     setValidationErrors({});
     
+    // Basic check to make sure they actually entered something
     if (!nationalId.trim()) {
       setValidationErrors({ national_id: 'National ID is required' });
       return;
     }
 
-    // Validate National ID format
+    // Check if the National ID follows Rwanda's format (16 digits starting with 1)
     if (!validateNationalId(nationalId)) {
       setValidationErrors({ 
         national_id: 'Invalid National ID format. Must be 16 digits starting with 1 (e.g., 1xxxxxxxxxxxxxxx)' 
@@ -187,7 +211,7 @@ const PatientRegistration = () => {
     try {
       console.log('Checking patient with National ID:', nationalId);
       
-      // Check if patient exists
+      // Let's see if this patient already exists in our system
       const { data: patient, error } = await supabase
         .from('patients')
         .select('*')
@@ -196,19 +220,20 @@ const PatientRegistration = () => {
 
       console.log('Patient lookup result:', patient, error);
 
+      // PGRST116 is Supabase's way of saying "record not found" - that's fine
       if (error && error.code !== 'PGRST116') {
         console.error('Patient lookup error:', error);
         throw error;
       }
 
       if (patient) {
-        // Existing patient - go to visit reason selection
+        // They're already in our system! Let's welcome them back
         setExistingPatient(patient);
         setFormData(prev => ({ 
           ...prev, 
           national_id: nationalId, 
           visit_reason: 'general_consultation',
-          // Pre-populate form data for existing patient to ensure validation passes
+          // Fill in their existing info so validation passes smoothly
           full_name: patient.full_name,
           phone_number: patient.phone_number,
           date_of_birth: patient.date_of_birth,
@@ -220,7 +245,7 @@ const PatientRegistration = () => {
           description: "Please select your reason for visit.",
         });
       } else {
-        // New patient - go to registration form
+        // New patient - let's get their information
         setFormData(prev => ({ ...prev, national_id: nationalId }));
         setStep('new_patient_form');
       }
@@ -240,20 +265,25 @@ const PatientRegistration = () => {
     setIsSubmitting(true);
     try {
       console.log('Joining queue with visit reason:', formData.visit_reason, 'and doctor:', formData.doctor_id);
-      // Get current queue position for the selected doctor
+      
+      // First, let's figure out what their queue number will be
+      // We count how many people are already waiting for this doctor
       const { count, error: countError } = await supabase
         .from('queue_entries')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'waiting')
         .eq('doctor_id', formData.doctor_id);
+      
       if (countError) {
         console.error('Error getting queue count:', countError);
         throw countError;
       }
+      
+      // Their position will be the next number in line
       const currentPosition = (count || 0) + 1;
       console.log('Current queue position for doctor:', currentPosition);
       
-      // Use existing patient data (either from lookup or just created)
+      // Make sure we have patient data ready (this should always exist at this point)
       if (!existingPatient) {
         console.error('No patient data available');
         throw new Error('Patient data not found');
@@ -261,7 +291,7 @@ const PatientRegistration = () => {
       
       console.log('Using patient ID:', existingPatient.id);
       
-      // Add to queue
+      // Now let's add them to the queue officially
       const { error: queueEntryError } = await supabase
         .from('queue_entries')
         .insert([
@@ -270,20 +300,22 @@ const PatientRegistration = () => {
             doctor_id: formData.doctor_id,
             queue_number: currentPosition,
             visit_reason: formData.visit_reason,
-            estimated_wait_time: currentPosition * 15, // 15 minutes per patient
+            estimated_wait_time: currentPosition * 15, // Rough estimate: 15 minutes per patient
             status: 'waiting',
           },
         ]);
+      
       if (queueEntryError) {
         console.error('Queue entry error:', queueEntryError);
         throw queueEntryError;
       }
+      
       console.log('Successfully joined queue');
       setQueuePosition(currentPosition);
-      setQueuePosition(currentPosition);
+      setQueuePosition(currentPosition); // This line appears twice, might be a duplicate
       setStep('queue_ticket');
       
-      // Send welcome SMS if notifications are enabled
+      // If they opted in for SMS updates, send them a welcome message
       if (formData.sms_notifications_enabled) {
         const patientForSMS = {
           id: existingPatient.id,
@@ -294,12 +326,13 @@ const PatientRegistration = () => {
         const selectedDoctor = doctors.find(d => d.id === formData.doctor_id);
         const doctorName = selectedDoctor?.name;
         
-        // Send SMS in background, don't block the UI
+        // Send the SMS in the background - don't make the patient wait for it
         sendWelcomeSMS(patientForSMS, currentPosition, doctorName).catch(error => {
           console.error('Failed to send welcome SMS:', error);
         });
       }
       
+      // Show success message with their queue number
       toast({
         title: "Successfully Joined Queue",
         description: `Your queue number is ${String(currentPosition).padStart(3, '0')}`,
@@ -319,30 +352,31 @@ const PatientRegistration = () => {
   const validateNewPatientForm = (): boolean => {
     const errors: {[key: string]: string} = {};
 
-    // Validate full name
+    // Make sure they entered their full name - pretty important for medical records!
     if (!formData.full_name.trim()) {
       errors.full_name = 'Full name is required';
     }
 
-    // Validate phone number
+    // Phone number validation - we need this for SMS notifications and emergencies
     if (!formData.phone_number.trim()) {
       errors.phone_number = 'Phone number is required';
     } else if (!validatePhoneNumber(formData.phone_number)) {
       errors.phone_number = 'Invalid phone number format. Use 07XXXXXXXX or +2507XXXXXXXX';
     }
 
-    // Validate emergency contact
+    // Emergency contact is optional, but if they provide one, it should be valid
     if (formData.emergency_contact && !validatePhoneNumber(formData.emergency_contact)) {
       errors.emergency_contact = 'Invalid emergency contact format. Use 07XXXXXXXX or +2507XXXXXXXX';
     }
 
-    // Validate date of birth
+    // Date of birth validation - we need this for medical purposes
     if (!formData.date_of_birth) {
       errors.date_of_birth = 'Date of birth is required';
     } else {
       const birthDate = new Date(formData.date_of_birth);
       const today = new Date();
       const age = today.getFullYear() - birthDate.getFullYear();
+      // Sanity check - no one should be negative age or over 150 years old
       if (age < 0 || age > 150) {
         errors.date_of_birth = 'Please enter a valid date of birth';
       }
@@ -353,16 +387,15 @@ const PatientRegistration = () => {
   };
 
   const handleNewPatientContinue = async () => {
-    // For existing patients, we don't need to validate as strictly since they're already in the system
+    // If this is an existing patient, we already have their info - just move to doctor selection
     if (existingPatient) {
-      // Just ensure we have the doctor_id and proceed
       setStep('doctor_selection');
       return;
     }
 
-    // For new patients, do full validation
+    // For brand new patients, we need to validate everything they entered
     if (validateNewPatientForm()) {
-      // Format phone numbers before proceeding
+      // Clean up the phone numbers to match our standard format
       const formattedData = {
         ...formData,
         phone_number: formatPhoneNumber(formData.phone_number),
@@ -371,7 +404,7 @@ const PatientRegistration = () => {
       
       setFormData(formattedData);
       
-      // Create the new patient in the database
+      // Now let's save their information to the database
       setIsSubmitting(true);
       try {
         console.log('Creating new patient:', formattedData);
@@ -397,7 +430,7 @@ const PatientRegistration = () => {
           throw patientError;
         }
         
-        // Store the created patient data
+        // Store their data so we can use it for the queue entry later
         setExistingPatient(insertData);
         
         toast({
@@ -417,6 +450,7 @@ const PatientRegistration = () => {
         setIsSubmitting(false);
       }
     } else {
+      // There were validation errors - let them know to fix them
       toast({
         title: "Validation Error",
         description: "Please fix the errors and try again",
@@ -426,6 +460,8 @@ const PatientRegistration = () => {
   };
 
   const resetForm = () => {
+    // When someone wants to start over, we reset everything back to the beginning
+    // This is useful if they made a mistake or if they want to register a different patient
     setStep('nid_entry');
     setNationalId('');
     setExistingPatient(null);
@@ -441,10 +477,14 @@ const PatientRegistration = () => {
     });
     setValidationErrors({});
     setQueuePosition(0);
-    setQueuePosition(0);
+    setQueuePosition(0); // This appears to be duplicated - might want to remove one
   };
 
-  // National ID Entry Step
+  // RENDERING SECTION
+  // Each step of the registration process has its own UI
+  // This makes the flow easier to manage and understand
+
+  // Step 1: National ID Entry - where patients start their journey
   if (step === 'nid_entry') {
     return (
       <>
@@ -503,7 +543,7 @@ const PatientRegistration = () => {
     );
   }
 
-  // New Patient Registration Form
+  // Step 2: New Patient Form - for first-time visitors to fill out their details
   if (step === 'new_patient_form') {
     return (
       <>
@@ -659,7 +699,8 @@ const PatientRegistration = () => {
     );
   }
 
-  // Doctor Selection Step
+  // Step 3: Doctor Selection - patients choose which doctor they want to see
+  // Shows real-time queue information to help them make informed decisions
   if (step === 'doctor_selection') {
     return (
       <>
@@ -779,7 +820,8 @@ const PatientRegistration = () => {
     );
   }
 
-  // Visit Reason Selection
+  // Step 4: Visit Reason Selection - patients specify why they're visiting today
+  // This helps doctors prepare and affects queue management
   if (step === 'visit_reason') {
     const patientName = existingPatient?.full_name || formData.full_name;
     
@@ -851,7 +893,8 @@ const PatientRegistration = () => {
     );
   }
 
-  // Queue Ticket Display
+  // Step 5: Queue Ticket Display - the final confirmation screen
+  // Shows their queue number, estimated wait time, and next steps
   if (step === 'queue_ticket') {
     const estimatedWait = queuePosition * 15;
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Trash2, User } from "lucide-react";
 
+// Doctor data structure - matches what we store in the database
 interface Doctor {
   id: string;
   name: string;
@@ -15,19 +16,24 @@ interface Doctor {
   created_at: string;
 }
 
+// Component for managing doctors in the medical queue system
+// Allows adding new doctors, toggling their availability, and removing them
 const DoctorManagement = () => {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  // Form data for adding a new doctor
   const [newDoctor, setNewDoctor] = useState({ name: '', specialization: '' });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
+    // Load all doctors when the component first renders
     fetchDoctors();
   }, []);
 
   const fetchDoctors = async () => {
     try {
+      // Get all doctors from the database, ordered by when they were added
       const { data, error } = await supabase
         .from('doctors')
         .select('*')
@@ -49,20 +55,23 @@ const DoctorManagement = () => {
 
   const addDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Basic validation - make sure both fields are filled out
     if (!newDoctor.name.trim() || !newDoctor.specialization.trim()) return;
 
     setIsSubmitting(true);
     try {
+      // Add the new doctor to the database, they start as available by default
       const { error } = await supabase
         .from('doctors')
         .insert([{
           name: newDoctor.name.trim(),
           specialization: newDoctor.specialization.trim(),
-          is_available: true
+          is_available: true // New doctors are available by default
         }]);
 
       if (error) throw error;
 
+      // Clear the form and refresh the list
       setNewDoctor({ name: '', specialization: '' });
       fetchDoctors();
       toast({
@@ -83,6 +92,7 @@ const DoctorManagement = () => {
 
   const toggleAvailability = async (doctorId: string, currentAvailability: boolean) => {
     try {
+      // Flip the doctor's availability status - if they're available, make them unavailable and vice versa
       const { error } = await supabase
         .from('doctors')
         .update({ is_available: !currentAvailability })
@@ -90,7 +100,7 @@ const DoctorManagement = () => {
 
       if (error) throw error;
 
-      fetchDoctors();
+      fetchDoctors(); // Refresh the list to show the updated status
       toast({
         title: "Status Updated",
         description: `Doctor availability has been ${!currentAvailability ? 'enabled' : 'disabled'}.`,
@@ -106,6 +116,7 @@ const DoctorManagement = () => {
   };
 
   const deleteDoctor = async (doctorId: string) => {
+    // Double-check with the user before deleting - this action can't be undone
     if (!confirm('Are you sure you want to delete this doctor?')) return;
 
     try {
@@ -116,7 +127,7 @@ const DoctorManagement = () => {
 
       if (error) throw error;
 
-      fetchDoctors();
+      fetchDoctors(); // Refresh the list to remove the deleted doctor
       toast({
         title: "Doctor Deleted",
         description: "Doctor has been removed successfully.",
@@ -204,12 +215,14 @@ const DoctorManagement = () => {
           </CardHeader>
           <CardContent>
             {doctors.length === 0 ? (
+              // Show a friendly message when no doctors have been added yet
               <div className="text-center py-8">
                 <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500">No doctors added yet</p>
               </div>
             ) : (
               <div className="space-y-4">
+                {/* Display each doctor with their info and action buttons */}
                 {doctors.map((doctor) => (
                   <div key={doctor.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex items-center space-x-4">
@@ -222,6 +235,7 @@ const DoctorManagement = () => {
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
+                      {/* Toggle button that changes color based on availability status */}
                       <Button
                         onClick={() => toggleAvailability(doctor.id, doctor.is_available)}
                         variant={doctor.is_available ? "default" : "secondary"}
@@ -229,6 +243,7 @@ const DoctorManagement = () => {
                       >
                         {doctor.is_available ? "Available" : "Unavailable"}
                       </Button>
+                      {/* Delete button with trash icon for easy recognition */}
                       <Button
                         onClick={() => deleteDoctor(doctor.id)}
                         variant="destructive"
