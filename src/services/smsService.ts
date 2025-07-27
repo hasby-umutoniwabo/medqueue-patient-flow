@@ -1,25 +1,33 @@
+// Holds the main settings for sending SMS messages
 interface PindoConfig {
   token: string;
   sender: string;
   apiUrl: string;
 }
 
+
+// Describes the result of trying to send an SMS
 interface SMSResponse {
   success: boolean;
   message?: string;
   error?: string;
 }
 
+
+// Basic info about a patient
 interface Patient {
   id: string;
   full_name: string;
   phone_number: string;
 }
 
+
+// Handles sending SMS notifications to patients
 class SMSService {
   private config: PindoConfig;
 
   constructor() {
+    // Set up the SMS service with the needed credentials and sender info
     this.config = {
       token: 'eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE4NDY4NDM2OTcsImlhdCI6MTc1MjE0OTI5NywiaWQiOiJ1c2VyXzAxSlpUM1I2V0g3MFE3TjNSSDg4RTNHQjcwIiwicmV2b2tlZF90b2tlbl9jb3VudCI6MH0.sq-7ppJvklc_bO7ztrq0_1iPYLYWyL9g4zrbnj8AC2G5dm7UQrx2veDzQYhob8jDe24LT5oQbFj55EYm9kjLHw',
       sender: 'PindoTest',
@@ -27,6 +35,7 @@ class SMSService {
     };
   }
 
+  // Makes sure the phone number is in the right format for sending SMS
   validatePhone(phone: string): string | null {
     const cleaned = phone.replace(/\D/g, '');
     if (/^2507\d{8}$/.test(cleaned)) return cleaned;       // 2507xxxxxxxx
@@ -35,6 +44,7 @@ class SMSService {
     return null;
   }
 
+  // Actually sends the SMS message to the patient
   async sendSMS(phone: string, message: string): Promise<SMSResponse> {
     if (!this.config.token || !this.config.sender || !this.config.apiUrl) {
       console.error('SMS service not configured properly');
@@ -72,6 +82,7 @@ class SMSService {
     }
   }
 
+  // Creates the first message a patient gets when joining the queue
   generateWelcomeMessage(patientName: string, queuePosition: number, doctorName?: string): string {
     const doctorInfo = doctorName ? ` with ${doctorName}` : '';
     
@@ -82,6 +93,7 @@ class SMSService {
     }
   }
 
+  // Creates a message based on where the patient is in the queue
   generatePositionMessage(patientName: string, position: number): string | null {
     if (position === 0) {
       return `Dear ${patientName}, please proceed to the medical room. It's your turn.`;
@@ -95,6 +107,7 @@ class SMSService {
     return null; // No notification for positions >5
   }
 
+  // Sends the welcome SMS to a new patient in the queue
   async sendWelcomeMessage(patient: Patient, queuePosition: number, doctorName?: string): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -105,6 +118,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Sends an update to the patient about their current position in the queue
   async sendPositionUpdate(patient: Patient, position: number): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -119,6 +133,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Notifies the patient that it's their turn to see the doctor
   async sendPatientCalledMessage(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -129,6 +144,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Lets the patient know they are next in line
   async sendYouAreNextMessage(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -139,6 +155,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Tells the patient they are now in the top 5 in the queue
   async sendTop5Message(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -149,6 +166,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Tells the patient they are now in the top 3 in the queue
   async sendTop3Message(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -159,6 +177,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Tells the patient they are now 2nd in line
   async sendTop2Message(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -169,6 +188,7 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Notifies the patient if they missed their turn
   async sendNoShowMessage(patient: Patient): Promise<SMSResponse> {
     const validatedPhone = this.validatePhone(patient.phone_number);
     if (!validatedPhone) {
@@ -179,10 +199,13 @@ class SMSService {
     return this.sendSMS(validatedPhone, message);
   }
 
+  // Checks if the SMS service is ready to use
   isConfigured(): boolean {
     return !!(this.config.token && this.config.sender && this.config.apiUrl);
   }
 }
 
+
+// Export a ready-to-use SMS service instance
 export const smsService = new SMSService();
 export default smsService;
